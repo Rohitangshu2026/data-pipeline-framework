@@ -1,0 +1,35 @@
+<job id="complex_pipeline">
+
+    <stage id="stage1">
+        <task>
+            <input src="input1"/>
+            <action type="ReadCSV"/>
+            <output src="data1"/>
+        </task>
+    </stage>
+
+    <stage id="stage2" pre_req="stage1">
+        <task>
+            <input src="data1"/>
+            <action type="Filter"/>
+            <output src="data2"/>
+        </task>
+    </stage>
+
+    <stage id="stage3" pre_req="stage1">
+        <task>
+            <input src="data1"/>
+            <action type="Aggregate"/>
+            <output src="data3"/>
+        </task>
+    </stage>
+
+    <stage id="stage4" pre_req="stage2 stage3">
+        <task>
+            <input src="data2"/>
+            <action type="Join"/>
+            <output src="data4"/>
+        </task>
+    </stage>
+
+</job>
