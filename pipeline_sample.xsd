@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://www.yourframework.org/pipeline"
+           xmlns="http://www.yourframework.org/pipeline"
+           elementFormDefault="qualified">
+
+    <xs:element name="job">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="resources" type="ResourcesType" minOccurs="0"/>
+                <xs:element name="workflow" type="WorkflowType"/>
+            </xs:sequence>
+            <xs:attribute name="name" type="xs:string" use="required"/>
+            <xs:attribute name="version" type="xs:string" use="optional"/>
+        </xs:complexType>
+
+        <xs:key name="ResourceKey">
+            <xs:selector xpath="resources/datasource"/>
+            <xs:field xpath="@id"/>
+        </xs:key>
+
+        <xs:key name="StageKey">
+            <xs:selector xpath="workflow/stage"/>
+            <xs:field xpath="@id"/>
+        </xs:key>
+
+        <xs:keyref name="ResourceRefConstraint" refer="ResourceKey">
+            <xs:selector xpath=".//task/input | .//task/output"/>
+            <xs:field xpath="@resource_ref"/>
+        </xs:keyref>
+    </xs:element>
+
+    <xs:complexType name="ResourcesType">
+        <xs:sequence>
+            <xs:element name="datasource" maxOccurs="unbounded">
+                <xs:complexType>
+                    <xs:sequence>
+                        <xs:element name="host" type="xs:string"/>
+                        <xs:element name="port" type="xs:int"/>
+                        <xs:element name="database" type="xs:string"/>
+                        <xs:element name="credentials" type="CredentialsType"/>
+                    </xs:sequence>
+                    <xs:attribute name="id" type="xs:string" use="required"/>
+                    <xs:attribute name="type" type="DSType" use="required"/>
+                </xs:complexType>
+            </xs:element>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="WorkflowType">
+        <xs:sequence>
+            <xs:element name="stage" maxOccurs="unbounded">
+                <xs:complexType>
+                    <xs:sequence>
+                        <xs:element name="task" type="TaskType" maxOccurs="unbounded"/>
+                    </xs:sequence>
+                    <xs:attribute name="id" type="xs:string" use="required"/>
+                    <xs:attribute name="depends_on" type="xs:string" use="optional"/>
+                    <xs:attribute name="on_failure" type="FailureStrategy" default="ABORT"/>
+                </xs:complexType>
+            </xs:element>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="TaskType">
+        <xs:sequence>
+            <xs:element name="input" type="IOType" minOccurs="0"/>
+            <xs:element name="parameters" type="ParametersType" minOccurs="0"/>
+            <xs:element name="output" type="IOType" minOccurs="0"/>
+        </xs:sequence>
+        <xs:attribute name="id" type="xs:string" use="required"/>
+        <xs:attribute name="action" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="IOType">
+        <xs:attribute name="resource_ref" type="xs:string" use="optional"/>
+        <xs:attribute name="handle" type="xs:string" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="ParametersType">
+        <xs:sequence>
+            <xs:element name="param" maxOccurs="unbounded">
+                <xs:complexType>
+                    <xs:attribute name="key" type="xs:string" use="required"/>
+                    <xs:attribute name="value" type="xs:string" use="required"/>
+                </xs:complexType>
+            </xs:element>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="CredentialsType">
+        <xs:sequence>
+            <xs:element name="username_ref" type="xs:string"/>
+            <xs:element name="password_ref" type="xs:string"/>
+        </xs:sequence>
+        <xs:attribute name="strategy" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:simpleType name="DSType">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="POSTGRES"/>
+            <xs:enumeration value="MYSQL"/>
+            <xs:enumeration value="S3"/>
+            <xs:enumeration value="SNOWFLAKE"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <xs:simpleType name="FailureStrategy">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="ABORT"/>
+            <xs:enumeration value="RETRY"/>
+            <xs:enumeration value="PROCEED"/>
+        </xs:restriction>
+    </xs:simpleType>
+</xs:schema>
