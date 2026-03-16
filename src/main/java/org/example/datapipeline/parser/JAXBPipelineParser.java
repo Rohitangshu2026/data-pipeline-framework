@@ -1,10 +1,11 @@
 package org.example.datapipeline.parser;
 
 import jakarta.xml.bind.*;
-
 import org.example.datapipeline.config.Job;
-
 import java.io.File;
+import javax.xml.XMLConstants;
+import javax.xml.validation.Schema;
+import javax.xml.validation.SchemaFactory;
 
 /**
  * Parser responsible for converting a pipeline XML configuration
@@ -30,6 +31,12 @@ public class JAXBPipelineParser {
         JAXBContext context = JAXBContext.newInstance(Job.class);
 
         Unmarshaller unmarshaller = context.createUnmarshaller();
+
+        SchemaFactory sf = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
+
+        Schema schema = sf.newSchema(new File("src/main/resources/job.xsd"));
+
+        unmarshaller.setSchema(schema);
 
         return (Job) unmarshaller.unmarshal(new File(xmlPath));
     }
