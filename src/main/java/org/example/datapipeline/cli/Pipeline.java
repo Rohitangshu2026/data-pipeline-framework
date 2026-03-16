@@ -3,9 +3,12 @@ package org.example.datapipeline.cli;
 import org.example.datapipeline.config.Job;
 import org.example.datapipeline.config.Task;
 import org.example.datapipeline.config.Stage;
+import org.example.datapipeline.executor.PipelineExecutor;
 import org.example.datapipeline.parser.JAXBPipelineParser;
 import org.example.datapipeline.validator.SemanticValidator;
 import org.example.datapipeline.util.ConfigNormalizer;
+
+import java.util.*;
 
 /**
  * CLI runner responsible for loading and validating a pipeline configuration.
@@ -36,6 +39,9 @@ public class Pipeline {
 
         ConfigNormalizer.normalize(job);
 
+
+
+
         // ---- DEBUG PRINT ----
         for(Stage stage : job.getStages()) {
 
@@ -53,6 +59,18 @@ public class Pipeline {
 
         System.out.println("Pipeline loaded: " + job.getId());
         System.out.println("Stages: " + job.getStages().size());
+
+        List<List<Stage>> levels = job.getExecutionLevels();
+
+        System.out.println("\nTopological Level Order:");
+
+        for(List<Stage> level : levels) {
+            System.out.println("Level " + levels.indexOf(level) + ": " + level.stream().map(Stage::getId).toList());
+        }
+
+        System.out.println("Dummy Execution\n");
+        PipelineExecutor.execute(job);
     }
+
 
 }

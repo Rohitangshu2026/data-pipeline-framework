@@ -65,4 +65,73 @@ public class Job {
             stageMap.put(s.getId(), s);
         }
     }
+
+    public List<List<Stage>> getExecutionLevels() {
+
+        Map<String, Stage> stageMap = new HashMap<>();
+        Map<String, Integer> indegree = new HashMap<>();
+        Map<String, List<String>> graph = new HashMap<>();
+
+        for(Stage s : stages) {
+            stageMap.put(s.getId(), s);
+            indegree.put(s.getId(), 0);
+            graph.put(s.getId(), new ArrayList<>());
+        }
+
+        // Build graph
+        for(Stage stage : stages) {
+
+            for(String dep : stage.getDependencies()) {
+
+                graph.get(dep).add(stage.getId());
+
+                indegree.put(
+                        stage.getId(),
+                        indegree.get(stage.getId()) + 1
+                );
+            }
+        }
+
+        Queue<String> queue = new LinkedList<>();
+
+        for(String id : indegree.keySet()) {
+            if(indegree.get(id) == 0)
+                queue.add(id);
+        }
+
+        List<List<Stage>> levels = new ArrayList<>();
+        int processed = 0;
+
+        while(!queue.isEmpty()) {
+
+            int size = queue.size();
+
+            List<Stage> level = new ArrayList<>();
+
+            for(int i = 0; i < size; i++) {
+
+                String curr = queue.poll();
+                processed++;
+
+                level.add(stageMap.get(curr));
+
+                for(String next : graph.get(curr)) {
+
+                    indegree.put(next, indegree.get(next) - 1);
+
+                    if(indegree.get(next) == 0)
+                        queue.add(next);
+                }
+            }
+
+            levels.add(level);
+        }
+
+        // cycle detection
+        if(processed != stages.size()) {
+            throw new RuntimeException("Pipeline contains cyclic dependencies");
+        }
+
+        return levels;
+    }
 }
