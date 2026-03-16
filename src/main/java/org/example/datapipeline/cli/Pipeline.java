@@ -13,7 +13,7 @@ import org.example.datapipeline.util.ConfigNormalizer;
  * The execution flow is:
  * 1. Parse the XML pipeline configuration
  * 2. Perform semantic validation
- * 3. Normalize configuration fields (e.g., resolve stage dependencies)
+ * 3. Normalize configuration fields
  *
  * This produces a validated Job configuration is
  * passed to the DAG builder and execution engine.
@@ -27,32 +27,41 @@ public class Pipeline {
      * @throws Exception if parsing or validation fails
      */
     public static void run(String xmlPath) throws Exception {
+        try{
+            JAXBPipelineParser parser = new JAXBPipelineParser();
+            Job job = parser.parse(xmlPath);
+            SemanticValidator.validate(job);
+            ConfigNormalizer.normalize(job);
+            System.out.println("Pipeline loaded: " + job.getId());
+            System.out.println("Stages: " + job.getStages().size());
 
-        JAXBPipelineParser parser = new JAXBPipelineParser();
-
-        Job job = parser.parse(xmlPath);
-
-        SemanticValidator.validate(job);
-
-        ConfigNormalizer.normalize(job);
-
-        // ---- DEBUG PRINT ----
-        for(Stage stage : job.getStages()) {
-
-            System.out.println("Stage: " + stage.getId());
-            System.out.println("Dependencies: " + stage.getDependencies());
-
-            for(Task task : stage.getTasks()) {
-                System.out.println("  Task:");
-                System.out.println("    Input: " + task.getInput().getSrc());
-                System.out.println("    Action: " + task.getAction().getType());
-                System.out.println("    Output: " + task.getOutput().getSrc());
-
+            // ---- DEBUG PRINT ----
+            for(Stage stage : job.getStages()) {
+                System.out.println("Stage: " + stage.getId());
+                System.out.println("Dependencies: " + stage.getDependencies());
+                for(Task task : stage.getTasks()) {
+                    System.out.println("  Task:");
+                    System.out.println("    Input: " + task.getInput().getSrc());
+                    System.out.println("    Action: " + task.getAction().getType());
+                    System.out.println("    Output: " + task.getOutput().getSrc());
+                }
             }
+
+        }
+        catch (Exception e) {
+            System.out.println("Pipeline configuration error\n");
+            Throwable cause = e.getCause();
+            if (cause instanceof org.xml.sax.SAXParseException sax) {
+                System.out.println("Line: " + sax.getLineNumber());
+                System.out.println("Column: " + sax.getColumnNumber());
+                System.out.println("Error: " + sax.getMessage());
+            }
+            else {
+                System.out.println("Error: " + e.getMessage());
+            }
+            System.exit(1);
         }
 
-        System.out.println("Pipeline loaded: " + job.getId());
-        System.out.println("Stages: " + job.getStages().size());
     }
 
 }
