@@ -25,7 +25,7 @@ public class Main {
 
         } catch (Exception e) {
 
-            // Handles unexpected errors (parsing, IO, etc.)
+            // Handles unexpected errors (parsing, IO)
             System.out.println("Unexpected error occurred:");
             e.printStackTrace();
         }

@@ -34,18 +34,16 @@ public class Pipeline {
         JAXBPipelineParser parser = new JAXBPipelineParser();
 
         Job job = parser.parse(xmlPath);
-
         SemanticValidator.validate(job);
 
         ConfigNormalizer.normalize(job);
+        System.out.println("Pipeline loaded: " + job.getId());
+        System.out.println("Stages: " + job.getStages().size());
 
-
-
-
-        // ---- DEBUG PRINT ----
+        System.out.println("\n----- PIPELINE STAGES -----");
         for(Stage stage : job.getStages()) {
 
-            System.out.println("Stage: " + stage.getId());
+            System.out.println("\nStage: " + stage.getId());
             System.out.println("Dependencies: " + stage.getDependencies());
 
             for(Task task : stage.getTasks()) {
@@ -56,13 +54,9 @@ public class Pipeline {
 
             }
         }
-
-        System.out.println("Pipeline loaded: " + job.getId());
-        System.out.println("Stages: " + job.getStages().size());
-
         List<List<Stage>> levels = job.getExecutionLevels();
 
-        System.out.println("\nTopological Level Order:");
+        System.out.println("\n---- TOPOLOGICAL LEVEL ORDER ----\n");
 
         for(List<Stage> level : levels) {
             System.out.println("Level " + levels.indexOf(level) + ": " + level.stream().map(Stage::getId).toList());

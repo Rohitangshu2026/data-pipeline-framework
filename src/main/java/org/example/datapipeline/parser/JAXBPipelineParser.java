@@ -1,5 +1,6 @@
 package org.example.datapipeline.parser;
 
+import org.example.datapipeline.exception.PipelineValidationException;
 import jakarta.xml.bind.*;
 import org.example.datapipeline.config.Job;
 import java.io.File;
@@ -19,6 +20,15 @@ import javax.xml.validation.SchemaFactory;
  */
 public class JAXBPipelineParser {
 
+    private String simplifyMessage(String raw) {
+
+        if (raw.contains("One of '{output}' is expected")) {
+            return "Missing required element <output> inside <task>";
+        }
+
+        // fallback
+        return raw;
+    }
     /**
      * Parses the pipeline XML file and returns the corresponding Job object.
      *
@@ -27,17 +37,37 @@ public class JAXBPipelineParser {
      * @throws Exception if the XML cannot be parsed or mapped correctly
      */
     public Job parse(String xmlPath) throws Exception {
+        try {
+            JAXBContext context = JAXBContext.newInstance(Job.class);
+            Unmarshaller unmarshaller = context.createUnmarshaller();
 
-        JAXBContext context = JAXBContext.newInstance(Job.class);
+            SchemaFactory sf = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
+            Schema schema = sf.newSchema(new File("src/main/resources/job.xsd"));
 
-        Unmarshaller unmarshaller = context.createUnmarshaller();
+            unmarshaller.setSchema(schema);
 
-        SchemaFactory sf = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
+            return (Job) unmarshaller.unmarshal(new File(xmlPath));
 
-        Schema schema = sf.newSchema(new File("src/main/resources/job.xsd"));
+        } catch (UnmarshalException e) {
+            throw new PipelineValidationException(formatError(e, xmlPath));
+        }
+    }
 
-        unmarshaller.setSchema(schema);
+    private String formatError(UnmarshalException e, String xmlPath) {
 
-        return (Job) unmarshaller.unmarshal(new File(xmlPath));
+        Throwable linked = e.getLinkedException();
+
+        if (linked instanceof org.xml.sax.SAXParseException sax) {
+            return "Pipeline validation failed\n" +
+                    "File: " + xmlPath + "\n" +
+                    "Line: " + sax.getLineNumber() +
+                    ", Column: " + sax.getColumnNumber() + "\n" +
+                    "Issue: " + simplifyMessage(sax.getMessage());
+        }
+
+        return "XML parsing failed: " + e.getMessage();
     }
 }
+
+
+
