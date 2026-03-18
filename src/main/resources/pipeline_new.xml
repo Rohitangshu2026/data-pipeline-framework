@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job xmlns="http://www.yourframework.org/pipeline"
+     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:schemaLocation="http://www.yourframework.org/pipeline pipeline.xsd"
+     name="CustomerRetentionETL"
+     version="1.2">
+
+    <resources>
+        <datasource id="raw_events_db" type="POSTGRES">
+            <host>10.0.4.52</host>
+            <port>5432</port>
+            <database>events_warehouse</database>
+            <credentials strategy="ENV_VAR">
+                <username_ref>DB_USER</username_ref>
+                <password_ref>DB_PWD</password_ref>
+            </credentials>
+        </datasource>
+
+        <storage id="s3_archive" type="S3">
+            <bucket>company-data-lake</bucket>
+            <region>us-east-1</region>
+        </storage>
+    </resources>
+
+    <workflow>
+
+        <stage id="stg_ingest" on_failure="ABORT">
+            <task id="t_pull_events" action="JDBC_READER">
+                <input resource_ref="raw_events_db" />
+                <parameters>
+                    <param key="query" value="SELECT * FROM events WHERE event_date = CURRENT_DATE" />
+                    <param key="fetch_size" value="5000" />
+                </parameters>
+                <output handle="df_raw_data" />
+            </task>
+        </stage>
+
+        <stage id="stg_transform" depends_on="stg_ingest" on_failure="RETRY" max_retries="3">
+            <task id="t_clean_json" action="JSON_PARSER">
+                <input handle="df_raw_data" />
+                <parameters>
+                    <param key="target_column" value="payload" />
+                    <param key="strict_mode" value="true" />
+                </parameters>
+                <output handle="df_clean_data" />
+            </task>
+
+            <task id="t_mask_pii" action="PII_SCRUBBER">
+                <input handle="df_clean_data" />
+                <parameters>
+                    <param key="columns" value="email,phone_number" />
+                    <param key="method" value="SHA256" />
+                </parameters>
+                <output handle="df_final_prepared" />
+            </task>
+        </stage>
+
+        <stage id="stg_load" depends_on="stg_transform" on_failure="PROCEED">
+            <task id="t_write_s3" action="S3_WRITER">
+                <input handle="df_final_prepared" />
+                <output resource_ref="s3_archive" />
+                <parameters>
+                    <param key="format" value="PARQUET" />
+                    <param key="partition_by" value="event_date" />
+                </parameters>
+            </task>
+        </stage>
+
+    </workflow>
+</job>

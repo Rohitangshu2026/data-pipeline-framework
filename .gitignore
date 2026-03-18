@@ -51,7 +51,7 @@ out/
 # =========================
 Thumbs.db
 
-# =========================
-# Ignore test pipelines
-# =========================
-src/main/resources/pipeline_*.xml
+## =========================
+## Ignore test pipelines
+## =========================
+#src/main/resources/pipeline_*.xml

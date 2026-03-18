@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="deep_cycle">
+
+    <stage id="A" pre_req="D">
+        <task><input src="a"/><action type="x"/><output src="b"/></task>
+    </stage>
+
+    <stage id="B" pre_req="A">
+        <task><input src="b"/><action type="x"/><output src="c"/></task>
+    </stage>
+
+    <stage id="C" pre_req="B">
+        <task><input src="c"/><action type="x"/><output src="d"/></task>
+    </stage>
+
+    <stage id="D" pre_req="C">
+        <task><input src="d"/><action type="x"/><output src="e"/></task>
+    </stage>
+
+</job>

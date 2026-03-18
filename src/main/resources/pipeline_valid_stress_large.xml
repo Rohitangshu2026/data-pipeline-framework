@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="large_pipeline">
+
+    <stage id="A"><task><input src="a"/><action type="x"/><output src="a1"/></task></stage>
+    <stage id="B" pre_req="A"><task><input src="a1"/><action type="x"/><output src="b1"/></task></stage>
+    <stage id="C" pre_req="B"><task><input src="b1"/><action type="x"/><output src="c1"/></task></stage>
+    <stage id="D" pre_req="C"><task><input src="c1"/><action type="x"/><output src="d1"/></task></stage>
+    <stage id="E" pre_req="D"><task><input src="d1"/><action type="x"/><output src="e1"/></task></stage>
+    <stage id="F" pre_req="E"><task><input src="e1"/><action type="x"/><output src="f1"/></task></stage>
+    <stage id="G" pre_req="F"><task><input src="f1"/><action type="x"/><output src="g1"/></task></stage>
+
+</job>

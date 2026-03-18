@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<job id="cyclic_pipeline_complex">
+
+    <stage id="extract">
+        <task>
+            <input src="db"/>
+            <action type="read"/>
+            <output src="raw"/>
+        </task>
+    </stage>
+
+    <stage id="transform" pre_req="extract validate">
+        <task>
+            <input src="raw"/>
+            <action type="transform"/>
+            <output src="transformed"/>
+        </task>
+    </stage>
+
+    <stage id="validate" pre_req="transform">
+        <task>
+            <input src="transformed"/>
+            <action type="validate"/>
+            <output src="validated"/>
+        </task>
+    </stage>
+
+    <stage id="load" pre_req="validate">
+        <task>
+            <input src="validated"/>
+            <action type="load"/>
+            <output src="warehouse"/>
+        </task>
+    </stage>
+
+</job>
