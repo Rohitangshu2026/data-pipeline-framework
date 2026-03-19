@@ -5,7 +5,10 @@ A lightweight **XML-driven data pipeline framework** written in Java.
 The system parses pipeline definitions from XML, validates them against an XSD schema, builds a dependency graph of stages, and executes the pipeline in **topologically ordered stages**.
 
 ---
-
+## Live Demo
+Access the UI here:
+https://data-pipeline-config.netlify.app/
+---
 # Features
 
 - XML-based pipeline configuration
