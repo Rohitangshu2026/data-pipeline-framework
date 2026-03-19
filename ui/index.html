@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pipeline XML Generator</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .section { border: 1px solid #ccc; padding: 15px; margin-bottom: 20px; border-radius: 5px; background-color: #f9f9f9; position: relative; }
+        .job-section { border-color: #007BFF; background-color: #e9f5ff; }
+        .task-block { border: 1px dashed #999; padding: 15px; margin-bottom: 10px; background-color: #fff; border-radius: 4px; position: relative;}
+        label { display: inline-block; width: 160px; font-weight: bold; margin-top: 10px;}
+        input { padding: 5px; width: 200px; }
+        
+        /* Button Styling */
+        button { padding: 8px 12px; color: white; border: none; cursor: pointer; font-size: 14px; margin-top: 10px; border-radius: 4px; }
+        .btn-primary { background-color: #007BFF; font-size: 16px; padding: 10px 15px;}
+        .btn-success { background-color: #28a745; margin-right: 10px; font-size: 16px; padding: 10px 15px;}
+        .btn-info { background-color: #17a2b8; margin-bottom: 10px;}
+        .btn-danger { background-color: #dc3545; } 
+        .btn-download { background-color: #6f42c1; font-size: 16px; padding: 10px 15px; margin-left: 10px; } /* Purple download button */
+        
+        /* Positioning */
+        .remove-task-btn { margin-top: 15px; display: block; }
+        .remove-stage-btn { position: absolute; top: 15px; right: 15px; margin: 0; }
+        .button-group { margin-top: 20px; margin-bottom: 20px; }
+
+        textarea { width: 100%; height: 300px; margin-top: 10px; font-family: monospace; }
+        h4 { margin-bottom: 5px; color: #333; border-bottom: 1px solid #ccc; padding-bottom: 5px;}
+    </style>
+</head>
+<body>
+
+    <h1>Pipeline Builder</h1>
+    <p>Fill out the fields below to generate and download your XML instance.</p>
+
+    <div class="section job-section">
+        <h3>Pipeline Job Details</h3>
+        <label>Job ID (*):</label>
+        <input type="text" id="jobId" placeholder="e.g., job_001">
+    </div>
+
+    <div id="stagesContainer"></div>
+
+    <div class="button-group">
+        <button class="btn-success" onclick="addStage()">+ Add Another Stage</button>
+        <button class="btn-primary" onclick="generateXML()">Generate XML Preview</button>
+        <button class="btn-download" onclick="downloadXML()">📥 Download XML File</button>
+    </div>
+
+    <h3>Your Generated XML:</h3>
+    <textarea id="xmlOutput" readonly></textarea>
+
+    <script>
+        let stageCounter = 0;
+
+        function addTask(buttonElement) {
+            const tasksContainer = buttonElement.parentElement.querySelector('.tasksContainer');
+            const taskHTML = `
+                <div class="task-block">
+                    <label>Input Source (*):</label>
+                    <input type="text" class="inputSrc" placeholder="e.g., s3://bucket/data.csv"><br>
+                    <label>Action Type (*):</label>
+                    <input type="text" class="actionType" placeholder="e.g., transform"><br>
+                    <label>Output Source (*):</label>
+                    <input type="text" class="outputSrc" placeholder="e.g., db://table/results"><br>
+                    <button class="btn-danger remove-task-btn" onclick="this.parentElement.remove()">🗑️ Remove Task</button>
+                </div>
+            `;
+            tasksContainer.insertAdjacentHTML('beforeend', taskHTML);
+        }
+
+        function addStage() {
+            stageCounter++;
+            const container = document.getElementById('stagesContainer');
+            const stageHTML = `
+                <div class="section stage-block">
+                    <button class="btn-danger remove-stage-btn" onclick="this.parentElement.remove()">🗑️ Remove Stage</button>
+                    <h3>Stage ${stageCounter}</h3>
+                    <label>Stage ID (*):</label>
+                    <input type="text" class="stageId" placeholder="e.g., stage_extract"><br>
+                    <label>Pre-requisite (Optional):</label>
+                    <input type="text" class="preReq" placeholder="e.g., stage_init">
+                    <h4>Error Handling (Optional)</h4>
+                    <label>Handling Strategy:</label>
+                    <input type="text" class="handlingStrategy" placeholder="e.g., fail_fast"><br>
+                    <label>Retry Count:</label>
+                    <input type="number" class="retryCount" placeholder="e.g., 3">
+                    <h4>Tasks</h4>
+                    <div class="tasksContainer"></div>
+                    <button class="btn-info" onclick="addTask(this)">+ Add Task to this Stage</button>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', stageHTML);
+            
+            const newStage = container.lastElementChild;
+            const addTaskBtn = newStage.querySelector('.btn-info');
+            addTask(addTaskBtn);
+        }
+
+        window.onload = function() {
+            addStage();
+        };
+
+        function generateXML() {
+            // Validation Logic
+            const jobId = document.getElementById('jobId').value.trim();
+            if (!jobId) { alert("Validation Error: Job ID is required."); return false; }
+
+            const stageBlocks = document.querySelectorAll('.stage-block');
+            if (stageBlocks.length === 0) { alert("Validation Error: At least one stage is required."); return false; }
+
+            for (let i = 0; i < stageBlocks.length; i++) {
+                const stageBlock = stageBlocks[i];
+                const stageId = stageBlock.querySelector('.stageId').value.trim();
+                if (!stageId) { alert("Validation Error: Stage ID is required in all stages."); return false; }
+
+                const handlingStrategy = stageBlock.querySelector('.handlingStrategy').value.trim();
+                const retryCount = stageBlock.querySelector('.retryCount').value.trim();
+                if (retryCount && !handlingStrategy) {
+                    alert(`Validation Error: Handling Strategy required if Retry Count is provided (Stage: ${stageId}).`);
+                    return false;
+                }
+
+                const taskBlocks = stageBlock.querySelectorAll('.task-block');
+                if (taskBlocks.length === 0) { alert(`Validation Error: At least one task required in Stage: ${stageId}.`); return false; }
+
+                for (let j = 0; j < taskBlocks.length; j++) {
+                    const taskBlock = taskBlocks[j];
+                    const inputSrc = taskBlock.querySelector('.inputSrc').value.trim();
+                    const actionType = taskBlock.querySelector('.actionType').value.trim();
+                    const outputSrc = taskBlock.querySelector('.outputSrc').value.trim();
+
+                    if (!inputSrc || !actionType || !outputSrc) {
+                        alert(`Validation Error: Input, Action, and Output are required for ALL tasks (Stage: ${stageId}).`);
+                        return false;
+                    }
+                }
+            }
+
+            // Generation Logic
+            let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+            xml += `<job id="${jobId}">\n`;
+
+            stageBlocks.forEach(stageBlock => {
+                const stageId = stageBlock.querySelector('.stageId').value.trim();
+                const preReq = stageBlock.querySelector('.preReq').value.trim();
+                const handlingStrategy = stageBlock.querySelector('.handlingStrategy').value.trim();
+                const retryCount = stageBlock.querySelector('.retryCount').value.trim();
+
+                xml += `\t<stage id="${stageId}"`;
+                if (preReq) xml += ` pre_req="${preReq}"`;
+                xml += `>\n`;
+
+                if (handlingStrategy) {
+                    xml += `\t\t<on_error handling_strategy="${handlingStrategy}"`;
+                    if (retryCount) xml += ` retry_count="${retryCount}"`;
+                    xml += `/>\n`;
+                }
+
+                const taskBlocks = stageBlock.querySelectorAll('.task-block');
+                taskBlocks.forEach(taskBlock => {
+                    const inputSrc = taskBlock.querySelector('.inputSrc').value.trim();
+                    const actionType = taskBlock.querySelector('.actionType').value.trim();
+                    const outputSrc = taskBlock.querySelector('.outputSrc').value.trim();
+
+                    xml += `\t\t<task>\n`;
+                    xml += `\t\t\t<input src="${inputSrc}"/>\n`;
+                    xml += `\t\t\t<action type="${actionType}"/>\n`;
+                    xml += `\t\t\t<output src="${outputSrc}"/>\n`;
+                    xml += `\t\t</task>\n`;
+                });
+
+                xml += `\t</stage>\n`;
+            });
+
+            xml += `</job>`;
+            document.getElementById('xmlOutput').value = xml;
+            
+            // Return true indicating generation was successful
+            return true; 
+        }
+
+        // NEW: Download File Logic
+        function downloadXML() {
+            // 1. Force a generation to catch any unsaved changes or validation errors
+            const isSuccessful = generateXML();
+            
+            // 2. If validation failed, stop the download
+            if (!isSuccessful) {
+                return;
+            }
+
+            // 3. Get the fully validated XML text
+            const xmlContent = document.getElementById('xmlOutput').value;
+
+            // 4. Create the Blob (the virtual file)
+            const blob = new Blob([xmlContent], { type: 'application/xml' });
+
+            // 5. Create an invisible anchor tag (<a>)
+            const link = document.createElement('a');
+            
+            // 6. Point the link to the Blob and name the file
+            link.href = URL.createObjectURL(blob);
+            link.download = 'pipeline_instance.xml'; 
+
+            // 7. Click it and clean up
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+        }
+    </script>
+
+</body>
+</html>
