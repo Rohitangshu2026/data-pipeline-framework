@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="missing_action_type">
+
+    <stage id="A">
+        <task>
+            <input src="x"/>
+            <action/>
+            <output src="z"/>
+        </task>
+    </stage>
+
+</job>

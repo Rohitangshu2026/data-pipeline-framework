@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="cycle_simple">
+
+    <stage id="A" pre_req="C">
+        <task><input src="x"/><action type="y"/><output src="z"/></task>
+    </stage>
+
+    <stage id="B" pre_req="A">
+        <task><input src="x"/><action type="y"/><output src="z"/></task>
+    </stage>
+
+    <stage id="C" pre_req="B">
+        <task><input src="x"/><action type="y"/><output src="z"/></task>
+    </stage>
+
+</job>

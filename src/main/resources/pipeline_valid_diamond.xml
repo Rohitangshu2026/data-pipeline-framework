@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="diamond">
+
+    <stage id="A">
+        <task><input src="x"/><action type="a"/><output src="a"/></task>
+    </stage>
+
+    <stage id="B" pre_req="A">
+        <task><input src="a"/><action type="b"/><output src="b"/></task>
+    </stage>
+
+    <stage id="C" pre_req="A">
+        <task><input src="a"/><action type="c"/><output src="c"/></task>
+    </stage>
+
+    <stage id="D" pre_req="B C">
+        <task><input src="b"/><action type="d"/><output src="d"/></task>
+    </stage>
+
+</job>

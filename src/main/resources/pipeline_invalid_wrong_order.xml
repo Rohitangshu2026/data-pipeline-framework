@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="wrong_order">
+
+    <stage id="A">
+
+        <task>
+            <action type="x"/>
+            <input src="y"/>
+            <output src="z"/>
+        </task>
+
+    </stage>
+
+</job>

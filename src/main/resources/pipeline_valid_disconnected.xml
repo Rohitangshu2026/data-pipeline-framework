@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="disconnected">
+
+    <stage id="A">
+        <task><input src="x"/><action type="a"/><output src="a"/></task>
+    </stage>
+
+    <stage id="B">
+        <task><input src="y"/><action type="b"/><output src="b"/></task>
+    </stage>
+
+</job>
