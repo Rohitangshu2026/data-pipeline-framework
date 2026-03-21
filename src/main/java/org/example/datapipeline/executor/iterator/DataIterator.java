@@ -1,4 +1,6 @@
 package org.example.datapipeline.executor.iterator;
 
-public class DataIterator {
+public interface DataIterator {
+    boolean hasNext();
+    String[] next();
 }
