@@ -42,7 +42,7 @@ public class JAXBPipelineParser {
             Unmarshaller unmarshaller = context.createUnmarshaller();
 
             SchemaFactory sf = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
-            Schema schema = sf.newSchema(new File("src/main/resources/job.xsd"));
+            Schema schema = sf.newSchema(new File("src/main/resources/schema/job.xsd"));
 
             unmarshaller.setSchema(schema);
 
