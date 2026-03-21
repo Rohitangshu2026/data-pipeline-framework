@@ -38,7 +38,7 @@ Configuration Normalization
         ↓   
 Dependency Graph Construction
         ↓
-Execution Engine
+Execution Engine (Action-driven)
 ```
 
 ---
@@ -50,9 +50,9 @@ job (id)
 └── stage* (id, pre_req?)
     ├── on_error? (handling_strategy, retry_count?)
     └── task+
-        ├── input (src)
-        ├── action (type)
-        └── output (src)
+        ├── input (csv | db)
+        ├── action (type + method + params)
+        └── output (csv | db)
 ```
 
 ## Java Object Model
@@ -60,9 +60,9 @@ job (id)
 Job
 └── Stages
     └── Tasks
-        ├── Input
-        ├── Action
-        └── Output
+        ├── Input 
+        ├── Action (type + method)
+        └── Output 
 ```
 ---
 
@@ -89,6 +89,7 @@ The following diagram shows the **complete lifecycle of a pipeline run**.
 10. Execution levels are computed
 11. Pipeline structure is printed
 12. `PipelineExecutor` runs stages level by level
+13. Each task executes via ActionExecutor
 
 ---
 ## Validation Layers
@@ -122,8 +123,52 @@ Algorithm:
 5. Add new zero-indegree stages to queue
 6. If processed nodes are not equal to total nodes, a cycle exists
 ---
+## Execution Model
+### Core Idea
+```declarative
+Input  → Data source
+Action → Logic to execute
+Method → Configuration of logic
+Output → Destination
+```
 
-### Key Interactions
+### Execution Flow
+- Task creates an ExecutionContext
+- ActionRegistry resolves the correct executor
+- ActionExecutor executes using context
+- Metadata (e.g., stageId) flows through execution
+
+### ExecutionContext
+
+Runtime object that carries:
+
+- Input
+- Output
+- Method configuration
+- Metadata (e.g., stageId)
+
+### ActionExecutor Interface
+
+Each action implements:
+
+- execute(ExecutionContext ctx)
+- getType()
+
+### ActionRegistry
+- Maps action types → executors
+- Supports plug-and-play extensibility
+### Supported Actions
+1. Transformation Actions:
+    - filter
+2. Bash Action 
+- Supports execution of external scripts in a configuration-driven way.
+- Key Design
+  - Script defined via method params (NOT input)
+  - Input = data
+  - Action = execution logic
+  - Method params = configuration
+---
+## Key Interactions
 ````
 CLI → Main → Pipeline
 
@@ -144,7 +189,7 @@ Stage → Task execution
 
 ---
 
-# UML Class Diagram
+## UML Class Diagram
 
 The class diagram shows the **core object model of the pipeline system**.
 
@@ -194,44 +239,70 @@ The class diagram shows the **core object model of the pipeline system**.
 data-pipeline-framework/
 │
 ├── src/main/java/org/example/datapipeline/
-│   │
+│
 │   ├── cli/
-│   │   └── Pipeline.java   → CLI runner
-│   │
-│   ├── config/     → Core domain model
+│   │   └── Pipeline.java
+│
+│   ├── config/
 │   │   ├── Job.java
 │   │   ├── Stage.java
 │   │   ├── Task.java
-│   │   ├── Input.java
-│   │   ├── Output.java
-│   │   ├── Action.java
-│   │   └── OnError.java
-│   │
-│   ├── parser/
-│   │   └── JAXBPipelineParser.java     → XML → Object
-│   │
-│   ├── validator/
-│   │   └── SemanticValidator.java      → Logical validation
-│   │
-│   ├── util/
-│   │   └── ConfigNormalizer.java       → Dependency normalization
-│   │
+│   │   ├── action/
+│   │   │   ├── Action.java
+│   │   │   ├── Method.java
+│   │   │   └── Param.java
+│   │   ├── input/
+│   │   │   ├── Input.java
+│   │   │   ├── CsvInput.java
+│   │   │   └── DbInput.java
+│   │   ├── output/
+│   │   │   ├── Output.java
+│   │   │   ├── CsvOutput.java
+│   │   │   └── DbOutput.java
+│
 │   ├── executor/
-│   │   └── PipelineExecutor.java       → Execution engine
-│   │
-│   ├── exception/
-│   │   └── PipelineValidationException.java
-│   │
-│   └── Main.java   → Entry point
+│   │   ├── PipelineExecutor.java
+│   │   ├── action/
+│   │   │   ├── ActionExecutor.java
+│   │   │   ├── ActionRegistry.java
+│   │   │   ├── BashAction.java
+│   │   │   └── TransformAction.java
+│   │   └── context/
+│   │       └── ExecutionContext.java
+│
+│   ├── parser/
+│   │   └── JAXBPipelineParser.java
+│
+│   ├── validator/
+│   │   └── SemanticValidator.java
+│
+│   ├── util/
+│   │   └── ConfigNormalizer.java
+│
+│   └── Main.java
 │
 ├── src/main/resources/
-│   ├── job.xsd     → Schema definition
-│   └── pipeline_*.xml  → Test configs
+│   ├── schema/
+│   │   ├── job.xsd
+│   │   └── superiorjob.xsd
+│   │
+│   ├── pipeline_config/
+│   │   ├── pipeline_instance.xml
+│   │   └── pipeline_script.xml
+│   │
+│   ├── scripts/
+│   │   ├── test.sh
+│   │   └── enrich.sh
+│   │
+│   ├── input/
+│   │   └── *.csv
+│   │
+│   └── output/
 │
-├── src/test/
-│   └── PipelineTest.java   → Full test suite
+├── ui/
+│   └── index.html
 │
-├── images/    
+├── images/
 ├── pom.xml
 └── README.md
 
@@ -265,8 +336,8 @@ Covered scenarios:
 
 ## How to Run
 ```bash
-mvn clean install
-java -cp target/classes org.example.datapipeline.Main <pipeline.xml>
+mmvn clean install
+java -cp target/classes org.example.datapipeline.Main src/main/resources/pipeline_config/pipeline_instance.xml
 ```
 
 ---
