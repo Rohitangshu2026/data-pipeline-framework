@@ -6,6 +6,7 @@ import org.example.datapipeline.config.action.Method;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 
 /**
  * Encapsulates all data required during the execution of a pipeline task.
@@ -27,11 +28,20 @@ public class ExecutionContext {
     private Method method;
 
     private Map<String, Object> metadata = new HashMap<>();
+    private List<String[]> data;
 
     public ExecutionContext(Input input, Output output, Method method) {
         this.input = input;
         this.output = output;
         this.method = method;
+    }
+
+    public List<String[]> getData() {
+        return data;
+    }
+
+    public void setData(List<String[]> data) {
+        this.data = data;
     }
 
     public Input getInput(){

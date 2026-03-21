@@ -10,38 +10,22 @@ import org.example.datapipeline.executor.action.ActionRegistry;
 import java.util.List;
 
 /**
- * Orchestrates the execution of a pipeline job.
+ * Represents the execution context for a pipeline task.
  *
- * This executor coordinates the execution of stages and tasks defined
- * in a job configuration. It processes the pipeline in levels, where
- * each level contains stages that can be executed in parallel, while
- * maintaining sequential execution across levels.
+ * Holds all information required during task execution, including
+ * input source, output destination, method configuration, and
+ * intermediate data.
  *
- * Features:
- * - Level-based Execution:
- *   Stages are grouped into execution levels, ensuring dependency-aware
- *   ordering. Each level is executed sequentially.
+ * Provides a shared data container used across ETL stages:
+ * - input  : source of data
+ * - data   : in-memory dataset processed by transforms
+ * - output : destination for final results
  *
- * - Parallel Stage Execution:
- *   Stages within the same level are executed concurrently to improve
- *   performance.
+ * Also includes a flexible metadata map for passing additional
+ * information such as stage identifiers or runtime context.
  *
- * - Task Execution:
- *   Each stage executes its tasks sequentially. For every task, the
- *   appropriate action executor is resolved dynamically and invoked
- *   using a shared execution context.
- *
- * - Context Propagation:
- *   Execution context carries input, output, method configuration, and
- *   metadata (such as stage identifiers) across the execution flow.
- *
- * - Logging:
- *   Provides structured logs for tracking stage levels, task execution,
- *   and pipeline progress.
- *
- * The design is extensible, allowing new action types, execution
- * strategies, or metadata enhancements without changing the core
- * orchestration logic.
+ * This class enables decoupled and extensible action execution
+ * by centralizing all runtime state in a single object.
  */
 public class PipelineExecutor {
 
@@ -75,7 +59,7 @@ public class PipelineExecutor {
                     stage.getId(),
                     task.getInput().getSrc(),
                     task.getAction().getType(),
-                    task.getAction().getMethod().getName(),  // ✅ method name
+                    task.getAction().getMethod().getName(),
                     task.getOutput().getSrc()
             );
             System.out.println(log);
@@ -88,11 +72,16 @@ public class PipelineExecutor {
 
             ctx.getMetadata().put("stageId", stage.getId());
 
+            List<String[]> data = task.getInput().readData();
+            ctx.setData(data);
+
             ActionExecutor executor = ActionRegistry.getAction(
                     task.getAction().getType()
             );
-
             executor.execute(ctx);
+
+            task.getOutput().writeData(ctx.getData());
+
         }
     }
 }
