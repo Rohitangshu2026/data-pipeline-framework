@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<job id="job1">
+
+    <stage id="stage1">
+
+        <task>
+
+            <!-- DATA -->
+            <input>
+                <csv src="src/main/resources/scripts/input.csv"/>
+            </input>
+
+            <!-- LOGIC -->
+            <action type="bash">
+                <method name="run">
+                    <param name="script" value="src/main/resources/scripts/test.sh"/>
+                    <param name="arg1" value="normal"/>
+                </method>
+            </action>
+
+            <!-- RESULT -->
+            <output>
+                <csv src="src/main/resources/output/output_script.txt"/>
+            </output>
+
+        </task>
+
+    </stage>
+
+    <stage id="stage2" pre_req="stage1">
+
+        <task>
+
+            <input>
+                <csv src="src/main/resources/output/output_script.txt"/>
+            </input>
+
+            <action type="bash">
+                <method name="run">
+                    <param name="script" value="src/main/resources/scripts/enrich.sh"/>
+                </method>
+            </action>
+
+            <output>
+                <csv src="src/main/resources/output/final_output.csv"/>
+            </output>
+
+        </task>
+
+    </stage>
+
+</job>
