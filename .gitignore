@@ -55,3 +55,6 @@ Thumbs.db
 ## Ignore test pipelines
 ## =========================
 #src/main/resources/pipeline_*.xml
+
+*.csv
+src/main/resources/output/
