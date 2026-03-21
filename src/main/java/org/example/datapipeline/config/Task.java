@@ -1,6 +1,12 @@
 package org.example.datapipeline.config;
 
 import jakarta.xml.bind.annotation.*;
+import org.example.datapipeline.config.action.Action;
+import org.example.datapipeline.config.input.Input;
+import org.example.datapipeline.config.output.Output;
+import org.example.datapipeline.executor.action.ActionExecutor;
+import org.example.datapipeline.executor.action.ActionRegistry;
+import org.example.datapipeline.executor.context.ExecutionContext;
 
 /**
  * Represents a task within a pipeline stage.
@@ -11,6 +17,19 @@ import jakarta.xml.bind.annotation.*;
  *
  * Tasks within a stage are executed sequentially in the order they
  * appear in the pipeline configuration.
+ *
+ * Features:
+ * - Input: Defines the data source consumed by the task.
+ *
+ * - Action: Specifies the operation to perform along with its method and parameters.
+ *
+ * - Output: Defines where the result of the task execution will be written.
+ *
+ * - Execution: Dynamically resolves the appropriate action implementation using the
+ *              action type and executes it via a shared execution context.
+ *
+ * The design supports extensibility by allowing new action types to be
+ * registered in the action registry without modifying the task logic.
  *
  * This class is mapped from the <task> element in the pipeline XML.
  */
@@ -51,5 +70,12 @@ public class Task {
      */
     public Output getOutput() {
         return output;
+    }
+
+    public void execute() {
+
+        ActionExecutor actionImpl = ActionRegistry.getAction(action.getType());
+        ExecutionContext ctx = new ExecutionContext(input, output, action.getMethod());
+        actionImpl.execute(ctx);
     }
 }
