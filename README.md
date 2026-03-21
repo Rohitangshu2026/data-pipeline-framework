@@ -71,9 +71,74 @@ Job
 
 The following diagram shows the **complete lifecycle of a pipeline run**.
 
-<p align="center">
-  <img src="/images/pipeline-flowchart.png" width="300" height="700"/>
-</p>
+```mermaid
+flowchart TD
+
+A[Start]
+B[Load XML Config]
+C[Parse using JAXB]
+D[Validate XSD + Semantic]
+E[Normalize Config]
+F[Build DAG Dependencies]
+G[Get Execution Levels]
+H{More Levels?}
+I[Pick Next Level]
+J[Run Stages in Parallel]
+K[For Each Stage]
+L[For Each Task]
+M[Create ExecutionContext]
+N[Get Action from Registry]
+O[Execute Action]
+P{Error?}
+Q[Next Task]
+R[Apply OnError Strategy]
+S{More Tasks?}
+T[Stage Complete]
+U{More Stages in Level?}
+V[Level Complete]
+W[Pipeline Complete]
+X[End]
+Z[Stop Pipeline]
+
+A --> B
+B --> C
+C --> D
+D --> E
+E --> F
+F --> G
+G --> H
+
+H -->|Yes| I
+I --> J
+J --> K
+K --> L
+L --> M
+M --> N
+N --> O
+O --> P
+
+P -->|No| Q
+P -->|Yes| R
+
+R -->|Retry| O
+R -->|Proceed| Q
+R -->|Abort| Z
+
+Q --> S
+S -->|Yes| L
+S -->|No| T
+
+T --> U
+U -->|Yes| K
+U -->|No| V
+
+V --> H
+
+H -->|No| W
+W --> X
+Z --> X
+
+```
 
 ### Execution Steps
 
@@ -193,7 +258,129 @@ Stage → Task execution
 
 The class diagram shows the **core object model of the pipeline system**.
 
-![UML Diagram](/images/uml-class-diagram.png)
+```mermaid
+classDiagram
+
+class Job {
+  -String id
+  -List~Stage~ stages
+  -Map~String, Stage~ stageMap
+  +getExecutionLevels()
+  +buildStageMap()
+}
+
+class Stage {
+  -String id
+  -Set~String~ dependencies
+  -List~Task~ tasks
+  -OnError onError
+  +normalizeDependencies()
+}
+
+class Task {
+  -Input input
+  -Action action
+  -Output output
+  +execute()
+}
+
+class Input {
+  +getSrc()
+}
+class CsvInput {
+  -String src
+}
+class DbInput {
+  -String connection
+  -String query
+}
+
+class Output {
+  +getSrc()
+}
+class CsvOutput {
+  -String src
+}
+class DbOutput {
+  -String connection
+  -String table
+}
+
+class Action {
+  -String type
+  -Method method
+}
+
+class Method {
+  -String name
+  -List~Param~ params
+  +getParamMap()
+}
+
+class Param {
+  -String name
+  -String value
+}
+
+class OnError {
+  -String handlingStrategy
+  -Integer retryCount
+}
+
+class ActionExecutor {
+  <<interface>>
+  +execute(ctx)
+  +getType()
+}
+
+class BashAction
+class TransformAction
+
+class ActionRegistry {
+  -Map~String, ActionExecutor~ registry
+  +getAction(type)
+}
+
+class PipelineExecutor {
+  +execute(job)
+}
+
+class ExecutionContext {
+  -Input input
+  -Output output
+  -Method method
+  -Map metadata
+}
+
+%% Relationships
+Job --> Stage
+Stage --> Task
+Stage --> OnError
+Task --> Input
+Task --> Output
+Task --> Action
+
+Input --> CsvInput
+Input --> DbInput
+Output --> CsvOutput
+Output --> DbOutput
+
+Action --> Method
+Method --> Param
+
+Task --> ExecutionContext
+ExecutionContext --> Method
+ExecutionContext --> Input
+ExecutionContext --> Output
+
+ActionExecutor <|.. BashAction
+ActionExecutor <|.. TransformAction
+
+ActionRegistry --> ActionExecutor
+PipelineExecutor --> Stage
+PipelineExecutor --> Task
+PipelineExecutor --> ActionRegistry
+```
 
 ---
 
