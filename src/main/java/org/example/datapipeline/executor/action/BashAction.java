@@ -8,6 +8,9 @@ import org.example.datapipeline.config.output.Output;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Arrays;
 
 /**
  * Executes bash-based actions within the data pipeline.
@@ -36,31 +39,17 @@ public class BashAction implements ActionExecutor {
     @Override
     public void execute(ExecutionContext ctx) {
 
-        Input input = ctx.getInput();
-        Output output = ctx.getOutput();
         Method method = ctx.getMethod();
 
-        System.out.println("[BASH] Running script: " + input.getSrc());
+        String methodName = method.getName().toLowerCase();
 
-        try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    "bash",
-                    input.getSrc(),
-                    output.getSrc()
-            );
+        BashMethod fn = methods.get(methodName);
 
-            pb.inheritIO();
-
-            Process process = pb.start();
-            int exit = process.waitFor();
-
-            if (exit != 0) {
-                throw new RuntimeException("Bash failed: exit code " + exit);
-            }
-
-        } catch (Exception e) {
-            throw new RuntimeException("Bash execution failed", e);
+        if (fn == null){
+            throw new RuntimeException("Unsupported bash method: " + methodName);
         }
+
+        fn.apply(ctx);
     }
 
     @FunctionalInterface
@@ -70,19 +59,49 @@ public class BashAction implements ActionExecutor {
 
     private void run(ExecutionContext ctx) {
 
-        String script = ctx.getInput().getSrc();
-        String output = ctx.getOutput().getSrc();
-        System.out.println("Running bash script: " + script);
+        String inputData = ctx.getInput().getSrc();
+        String output = ctx.getOutput() != null ? ctx.getOutput().getSrc() : null;
+
+        Map<String, String> params = ctx.getMethod().getParamMap();
+
+        String script = params.get("script");
+
+        if (script == null || script.isBlank()) {
+            throw new RuntimeException("Missing 'script' param for bash action");
+        }
+
+        List<String> command = new ArrayList<>();
+        command.add("bash");
+        command.add(script);
+
+        // 🔹 pass input data first
+        command.add(inputData);
+
+        // 🔹 ordered args (arg1, arg2, ...)
+        params.entrySet().stream()
+                .filter(e -> e.getKey().startsWith("arg"))
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(e -> command.add(e.getValue()));
+
+        // 🔹 optional output last
+        if (output != null) {
+            command.add(output);
+        }
+
+        System.out.println("[BASH] Command: " + String.join(" ", command));
+
         try {
-            ProcessBuilder pb = new ProcessBuilder("bash", script, output);
+            ProcessBuilder pb = new ProcessBuilder(command);
             pb.inheritIO();
+
             Process p = pb.start();
             int exit = p.waitFor();
+
             if (exit != 0) {
                 throw new RuntimeException("Script failed with exit code: " + exit);
             }
-        }
-        catch (IOException | InterruptedException e) {
+
+        } catch (IOException | InterruptedException e) {
             throw new RuntimeException("Bash execution failed", e);
         }
     }
