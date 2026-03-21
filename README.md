@@ -18,6 +18,7 @@ https://data-pipeline-config.netlify.app/
 - Topological execution order
 - Modular architecture
 - Extensible execution engine
+- Memory-efficient streaming data processing via Iterators
 
 ---
 
@@ -169,7 +170,7 @@ Z --> X
 - Valid dependencies
 - Tasks must exist
 - Input, Action, Output required
-- Valid on_error strategy
+- Valid on_error strategy (retry, abort/stop, proceed/skip)
 
 ### 3. Runtime Validation
 - Cycle detection during DAG construction
@@ -191,16 +192,17 @@ Algorithm:
 ## Execution Model
 ### Core Idea
 ```declarative
-Input  → Data source
-Action → Logic to execute
+Input  → Data source (Streamed via Iterators)
+Action → Logic to execute (Lazy execution)
 Method → Configuration of logic
-Output → Destination
+Output → Destination (Written incrementally)
 ```
 
 ### Execution Flow
 - Task creates an ExecutionContext
 - ActionRegistry resolves the correct executor
 - ActionExecutor executes using context
+- Data streams through executors via Iterators to minimize memory consumption
 - Metadata (e.g., stageId) flows through execution
 
 ### ExecutionContext
@@ -210,6 +212,7 @@ Runtime object that carries:
 - Input
 - Output
 - Method configuration
+- DataIterator (for streaming records)
 - Metadata (e.g., stageId)
 
 ### ActionExecutor Interface
@@ -223,13 +226,18 @@ Each action implements:
 - Maps action types → executors
 - Supports plug-and-play extensibility
 ### Supported Actions
-1. Transformation Actions:
-    - filter
-2. Bash Action 
-- Supports execution of external scripts in a configuration-driven way.
-- Key Design
-  - Script defined via method params (NOT input)
-  - Input = data
+1. Transformation Actions (In-Memory / Streaming Data Transformations):
+    - **filter**: Filters rows based on a condition (params: `column`, `operator`, `value`).
+    - **select**: Keeps only specified columns (params: `columns`).
+    - **map**: Modifies a column's value (params: `column`, `operation`, `value`). Operations: `add`, `multiply`.
+    - **aggregate**: Groups data and performs an aggregation (params: `group_by`, `column`, `operation`). Operations: `avg`, `max`, `count`.
+2. Bash Action
+- Supports execution of external shell scripts in a configuration-driven way.
+- Key Design:
+  - Script defined via method params (NOT input).
+  - Additional arguments can be passed via `arg1`, `arg2`, etc.
+  - Framework executes the script as: `bash <script> <input_data> <arg1>... <output_data>`
+  - Input = data target
   - Action = execution logic
   - Method params = configuration
 ---
@@ -286,6 +294,8 @@ class Task {
 
 class Input {
   +getSrc()
+  +readData()
+  +streamData()
 }
 class CsvInput {
   -String src
@@ -297,6 +307,7 @@ class DbInput {
 
 class Output {
   +getSrc()
+  +writeData(DataIterator)
 }
 class CsvOutput {
   -String src
@@ -305,6 +316,15 @@ class DbOutput {
   -String connection
   -String table
 }
+
+class DataIterator {
+  <<interface>>
+  +hasNext()
+  +next()
+}
+class CsvDataIterator {
+}
+DataIterator <|.. CsvDataIterator
 
 class Action {
   -String type
@@ -349,6 +369,7 @@ class ExecutionContext {
   -Input input
   -Output output
   -Method method
+  -DataIterator iterator
   -Map metadata
 }
 
@@ -372,6 +393,7 @@ Task --> ExecutionContext
 ExecutionContext --> Method
 ExecutionContext --> Input
 ExecutionContext --> Output
+ExecutionContext --> DataIterator
 
 ActionExecutor <|.. BashAction
 ActionExecutor <|.. TransformAction
@@ -453,9 +475,18 @@ data-pipeline-framework/
 │   │   │   ├── ActionExecutor.java
 │   │   │   ├── ActionRegistry.java
 │   │   │   ├── BashAction.java
-│   │   │   └── TransformAction.java
-│   │   └── context/
-│   │       └── ExecutionContext.java
+│   │   │   └── transform/
+│   │   │       ├── AggregateTransform.java
+│   │   │       ├── FilterTransform.java
+│   │   │       ├── MapTransform.java
+│   │   │       ├── SelectTransform.java
+│   │   │       ├── TransformAction.java
+│   │   │       └── TransformMethod.java
+│   │   ├── context/
+│   │   │   └── ExecutionContext.java
+│   │   └── iterator/
+│   │       ├── CsvDataIterator.java
+│   │       └── DataIterator.java
 │
 │   ├── parser/
 │   │   └── JAXBPipelineParser.java
@@ -529,70 +560,122 @@ java -cp target/classes org.example.datapipeline.Main src/main/resources/pipelin
 
 ---
 
-## Advanced XSD Schema Design (v2)
+[//]: # (## Advanced XSD Schema Design &#40;v2&#41;)
 
-To create a highly extensible, deeply validated pipeline framework, we entirely redesigned the `job.xsd` schema into `superiorjob.xsd`.
+[//]: # ()
+[//]: # (To create a highly extensible, deeply validated pipeline framework, we entirely redesigned the `job.xsd` schema into `superiorjob.xsd`.)
 
-### Schema Architecture Diagram
+[//]: # ()
+[//]: # (### Schema Architecture Diagram)
 
-```mermaid
-classDiagram
-    direction TB
+[//]: # ()
+[//]: # (```mermaid)
 
-    class JobType {
-        +xs:token id
-        +StageType[] stage
-    }
+[//]: # (classDiagram)
 
-    class StageType {
-        +xs:ID id
-        +xs:IDREFS pre_req
-        +OnErrorType on_error
-        +TaskType[] task
-    }
+[//]: # (    direction TB)
 
-    class TaskType {
-        +InputType input
-        +ActionType action
-        +OutputType output
-    }
+[//]: # ()
+[//]: # (    class JobType {)
 
-    class InputType {
-        <<xs:choice>>
-        +CsvType csv
-        +FutureInputs...
-    }
+[//]: # (        +xs:token id)
 
-    class ActionType {
-        <<xs:choice>>
-        +FilterRowActionType filterRow
-        +FutureActions...
-    }
+[//]: # (        +StageType[] stage)
 
-    class OutputType {
-        <<xs:choice>>
-        +CsvType csv
-        +FutureOutputs...
-    }
+[//]: # (    })
 
-    JobType "1" --> "1..*" StageType : contains
-    StageType "1" --> "1..*" TaskType : contains
-    TaskType "1" --> "1" InputType : uses
-    TaskType "1" --> "1" ActionType : uses
-    TaskType "1" --> "1" OutputType : uses
-```
+[//]: # ()
+[//]: # (    class StageType {)
 
-### Core Design Decisions & Justifications
+[//]: # (        +xs:ID id)
 
-1. **Venetian Blind Pattern (Modularity)**
-Instead of deeply nesting "Russian Doll" inline structures, the schema defines global `<xs:complexType>` building blocks (e.g., `JobType`, `StageType`). This keeps the schema incredibly readable and allows massive pipeline enterprise architectures to reuse these foundational domain types if imported.
+[//]: # (        +xs:IDREFS pre_req)
 
-2. **Polymorphic I/O & Actions (`<xs:choice>`)**
-Instead of defining a single generic `<input type="csv">` tag loaded with dozens of optional attributes, we enforce **Polymorphic Elements** (e.g., `<input><csv src="..."/></input>`). This acts as an explicit schema `switch` statement.
-   - **Justification:** It prevents users from writing illegal attribute combinations, and it seamlessly wires into Java `JAXB`. JAXB automatically generates an abstract `Input` base class with concrete `CsvInput` subclasses so the Java layer doesn't need giant, unmaintainable if-else action routers.
+[//]: # (        +OnErrorType on_error)
 
-3. **Strict Type Safety over Raw Strings**
-Instead of allowing whitespace-heavy raw `xs:string` values, the schema enforces:
-   - `NonEmptyString` (`minLength=1` on `xs:token`) to prevent accidently supplying `<job id=" ">`
-   - `xs:nonNegativeInteger` for `retry_count` so users cannot retry a pipeline `-5` times
-   - `HandlingStrategyEnum` so the `on_error` strategy only accepts exact backend-supported behaviors (`STOP`, `SKIP`, `RETRY`), instantly intercepting typos at parse-time.
+[//]: # (        +TaskType[] task)
+
+[//]: # (    })
+
+[//]: # ()
+[//]: # (    class TaskType {)
+
+[//]: # (        +InputType input)
+
+[//]: # (        +ActionType action)
+
+[//]: # (        +OutputType output)
+
+[//]: # (    })
+
+[//]: # ()
+[//]: # (    class InputType {)
+
+[//]: # (        <<xs:choice>>)
+
+[//]: # (        +CsvType csv)
+
+[//]: # (        +FutureInputs...)
+
+[//]: # (    })
+
+[//]: # ()
+[//]: # (    class ActionType {)
+
+[//]: # (        <<xs:choice>>)
+
+[//]: # (        +FilterRowActionType filterRow)
+
+[//]: # (        +FutureActions...)
+
+[//]: # (    })
+
+[//]: # ()
+[//]: # (    class OutputType {)
+
+[//]: # (        <<xs:choice>>)
+
+[//]: # (        +CsvType csv)
+
+[//]: # (        +FutureOutputs...)
+
+[//]: # (    })
+
+[//]: # ()
+[//]: # (    JobType "1" --> "1..*" StageType : contains)
+
+[//]: # (    StageType "1" --> "1..*" TaskType : contains)
+
+[//]: # (    TaskType "1" --> "1" InputType : uses)
+
+[//]: # (    TaskType "1" --> "1" ActionType : uses)
+
+[//]: # (    TaskType "1" --> "1" OutputType : uses)
+
+[//]: # (```)
+
+[//]: # ()
+[//]: # (### Core Design Decisions & Justifications)
+
+[//]: # ()
+[//]: # (1. **Venetian Blind Pattern &#40;Modularity&#41;**)
+
+[//]: # (Instead of deeply nesting "Russian Doll" inline structures, the schema defines global `<xs:complexType>` building blocks &#40;e.g., `JobType`, `StageType`&#41;. This keeps the schema incredibly readable and allows massive pipeline enterprise architectures to reuse these foundational domain types if imported.)
+
+[//]: # ()
+[//]: # (2. **Polymorphic I/O & Actions &#40;`<xs:choice>`&#41;**)
+
+[//]: # (Instead of defining a single generic `<input type="csv">` tag loaded with dozens of optional attributes, we enforce **Polymorphic Elements** &#40;e.g., `<input><csv src="..."/></input>`&#41;. This acts as an explicit schema `switch` statement.)
+
+[//]: # (   - **Justification:** It prevents users from writing illegal attribute combinations, and it seamlessly wires into Java `JAXB`. JAXB automatically generates an abstract `Input` base class with concrete `CsvInput` subclasses so the Java layer doesn't need giant, unmaintainable if-else action routers.)
+
+[//]: # ()
+[//]: # (3. **Strict Type Safety over Raw Strings**)
+
+[//]: # (Instead of allowing whitespace-heavy raw `xs:string` values, the schema enforces:)
+
+[//]: # (   - `NonEmptyString` &#40;`minLength=1` on `xs:token`&#41; to prevent accidently supplying `<job id=" ">`)
+
+[//]: # (   - `xs:nonNegativeInteger` for `retry_count` so users cannot retry a pipeline `-5` times)
+
+[//]: # (   - `HandlingStrategyEnum` so the `on_error` strategy only accepts exact backend-supported behaviors &#40;`STOP`, `SKIP`, `RETRY`&#41;, instantly intercepting typos at parse-time.)
