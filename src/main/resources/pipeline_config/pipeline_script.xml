@@ -8,7 +8,7 @@
 
             <!-- DATA -->
             <input>
-                <csv src="src/main/resources/scripts/input.csv"/>
+                <csv src="src/main/resources/input/input.csv"/>
             </input>
 
             <!-- LOGIC -->
