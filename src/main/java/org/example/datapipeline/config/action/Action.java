@@ -1,4 +1,4 @@
-package org.example.datapipeline.config;
+package org.example.datapipeline.config.action;
 
 import jakarta.xml.bind.annotation.*;
 
@@ -17,12 +17,13 @@ public class Action {
     @XmlAttribute
     private String type;
 
-    /**
-     * Returns the type of action associated with the task.
-     *
-     * @return action type defined in the pipeline configuration
-     */
-    public String getType() {
+    @XmlElement
+    private Method method;
+
+    public String getType(){
         return type;
+    }
+    public Method getMethod(){
+        return method;
     }
 }
