@@ -1,14 +1,15 @@
 package org.example.datapipeline.executor.action.transform;
 
 import org.example.datapipeline.executor.context.ExecutionContext;
+import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
 /**
- * Filters rows from the dataset based on a condition applied to a specific column.
+ * Filters rows from a streaming dataset based on a condition applied to a specific column.
  *
- * Evaluates each row against a comparison condition and retains only
- * those rows that satisfy the condition. The header row is preserved.
+ * Processes input data lazily using an iterator and emits only those rows
+ * that satisfy the given condition. The header row is preserved and passed through unchanged.
  *
  * Supported operators:
  * - >   : greater than (numeric)
@@ -22,39 +23,77 @@ import java.util.*;
  * - operator : comparison operator
  * - value    : value to compare against
  *
- * Numeric comparisons are performed when possible. If parsing fails,
- * a string equality check is used.
+ * Numeric comparisons are performed when both the cell value and comparison
+ * value can be parsed as numbers. Otherwise, a string equality check is used.
  *
- * Input data is read from the execution context and filtered in memory.
- * The resulting dataset replaces the original data in the context.
+ * The transformation is applied in a streaming fashion, buffering only the
+ * next valid row when needed. This enables efficient processing of large datasets
+ * without loading the entire input into memory.
+ *
+ * The result is returned as a new iterator that yields:
+ * - the original header row
+ * - filtered data rows satisfying the condition
  */
 public class FilterTransform implements TransformMethod {
 
     @Override
-    public void apply(ExecutionContext ctx) {
+    public DataIterator apply(DataIterator input, ExecutionContext ctx) {
 
-        List<String[]> data = ctx.getData();
         Map<String, String> params = ctx.getMethod().getParamMap();
 
         String column = params.get("column");
         String operator = params.get("operator");
         String value = params.get("value");
 
-        String[] header = data.get(0);
-        int colIndex = getColumnIndex(header, column);
+        return new DataIterator() {
 
-        List<String[]> result = new ArrayList<>();
-        result.add(header);
+            String[] header;
+            int colIndex = -1;
+            boolean headerProcessed = false;
+            String[] nextValid = null;
 
-        for (int i = 1; i < data.size(); i++) {
-            String[] row = data.get(i);
+            @Override
+            public boolean hasNext() {
 
-            if (evaluate(row[colIndex], operator, value)) {
-                result.add(row);
+                if (!headerProcessed) {
+                    if (!input.hasNext()) return false;
+                    return true;
+                }
+
+                if (nextValid != null) return true;
+
+                while (input.hasNext()) {
+                    String[] row = input.next();
+                    if (colIndex >= row.length)
+                        continue;
+                    if (evaluate(row[colIndex], operator, value)) {
+                        nextValid = row;
+                        return true;
+                    }
+                }
+
+                return false;
             }
-        }
 
-        ctx.setData(result);
+            @Override
+            public String[] next() {
+
+                if (!headerProcessed) {
+                    header = input.next();
+                    colIndex = getColumnIndex(header, column);
+                    headerProcessed = true;
+                    return header;
+                }
+
+                if (nextValid != null || hasNext()) {
+                    String[] temp = nextValid;
+                    nextValid = null;
+                    return temp;
+                }
+
+                throw new RuntimeException("No more elements");
+            }
+        };
     }
 
     private int getColumnIndex(String[] header, String column) {
@@ -65,21 +104,25 @@ public class FilterTransform implements TransformMethod {
     }
 
     private boolean evaluate(String cell, String operator, String value) {
-        try {
-            double c = Double.parseDouble(cell);
-            double v = Double.parseDouble(value);
 
+        Double c = tryParse(cell);
+        Double v = tryParse(value);
+
+        if (c != null && v != null) {
             return switch (operator) {
                 case ">" -> c > v;
                 case "<" -> c < v;
-                case "=" -> c == v;
+                case "=" -> c.equals(v);
                 case ">=" -> c >= v;
                 case "<=" -> c <= v;
                 default -> throw new RuntimeException("Invalid operator: " + operator);
             };
-
-        } catch (NumberFormatException e) {
-            return cell.equals(value);
         }
+
+        return cell.equals(value);
+    }
+    private Double tryParse(String s) {
+        try { return Double.parseDouble(s); }
+        catch (Exception e) { return null; }
     }
 }

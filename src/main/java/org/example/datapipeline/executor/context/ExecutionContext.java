@@ -3,6 +3,7 @@ package org.example.datapipeline.executor.context;
 import org.example.datapipeline.config.input.Input;
 import org.example.datapipeline.config.output.Output;
 import org.example.datapipeline.config.action.Method;
+import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -29,6 +30,7 @@ public class ExecutionContext {
 
     private Map<String, Object> metadata = new HashMap<>();
     private List<String[]> data;
+    private DataIterator iterator;
 
     public ExecutionContext(Input input, Output output, Method method) {
         this.input = input;
@@ -58,5 +60,13 @@ public class ExecutionContext {
 
     public Map<String, Object> getMetadata(){
         return metadata;
+    }
+
+    public DataIterator getIterator() {
+        return iterator;
+    }
+
+    public void setIterator(DataIterator iterator) {
+        this.iterator = iterator;
     }
 }

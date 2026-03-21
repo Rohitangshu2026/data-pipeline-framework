@@ -1,44 +1,45 @@
 package org.example.datapipeline.executor.action.transform;
 
 import org.example.datapipeline.executor.context.ExecutionContext;
+import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
 /**
- * Performs aggregation on dataset rows based on a grouping column.
+ * Performs grouped aggregation on streaming input data.
  *
- * Groups data using a specified column and applies an aggregation
- * operation on another numeric column.
+ * Consumes rows from the input iterator, groups them by a specified column,
+ * and applies an aggregation operation on another numeric column.
  *
  * Supported operations:
- * - sum   : total of all values in the group
- * - avg   : average of values in the group
- * - min   : minimum value in the group
- * - max   : maximum value in the group
- * - count : number of valid values in the group
+ * - sum   : total of values in each group
+ * - avg   : average value per group
+ * - min   : minimum value per group
+ * - max   : maximum value per group
+ * - count : number of valid numeric entries per group
  *
  * The method expects parameters for:
  * - group_by : column used to form groups
- * - column   : column on which aggregation is applied
- * - operation: aggregation type to perform
+ * - column   : column on which aggregation is performed
+ * - operation: aggregation type to apply
  *
- * Input data is read from the execution context and processed in memory.
- * The result is a reduced dataset with one row per group, containing
- * the group key and the computed aggregate value.
+ * The input is processed in a streaming manner, but aggregation requires
+ * maintaining intermediate state for each group in memory. Non-numeric
+ * values are ignored during computation.
  *
- * Non-numeric values in the target column are ignored during aggregation.
+ * The result is exposed as a new iterator producing:
+ * - a header row with group and aggregated column
+ * - one row per group containing the computed value
+ *
+ * This transform enables scalable group-based computations while
+ * preserving compatibility with the framework's iterator-based execution model.
  */
 public class AggregateTransform implements TransformMethod {
 
     @Override
-    public void apply(ExecutionContext ctx) {
+    public DataIterator apply(DataIterator input, ExecutionContext ctx) {
 
-        List<String[]> data = ctx.getData();
         Map<String, String> params = ctx.getMethod().getParamMap();
-
-        if (data == null || data.isEmpty()) {
-            throw new RuntimeException("No data available for aggregate");
-        }
 
         String groupBy = params.get("group_by");
         String operation = params.get("operation");
@@ -48,53 +49,87 @@ public class AggregateTransform implements TransformMethod {
             throw new RuntimeException("Missing params for aggregate");
         }
 
-        String[] header = data.get(0);
+        if (!input.hasNext()) {
+            throw new RuntimeException("Empty input data");
+        }
+
+        String[] header = input.next();
 
         int groupIndex = -1, valueIndex = -1;
 
         for (int i = 0; i < header.length; i++) {
-            if (header[i].equals(groupBy)) groupIndex = i;
-            if (header[i].equals(column)) valueIndex = i;
+            if (header[i].trim().equalsIgnoreCase(groupBy)) groupIndex = i;
+            if (header[i].trim().equalsIgnoreCase(column)) valueIndex = i;
         }
 
         if (groupIndex == -1 || valueIndex == -1) {
             throw new RuntimeException("Invalid columns for aggregation");
         }
-
-        Map<String, List<Double>> groups = new HashMap<>();
-
-        for (int i = 1; i < data.size(); i++) {
-
-            String[] row = data.get(i);
+        Map<String, AggregateState> groups = new HashMap<>();
+        while (input.hasNext()) {
+            String[] row = input.next();
+            if (groupIndex >= row.length || valueIndex >= row.length) continue;
             String key = row[groupIndex];
-
-            try {
-                double val = Double.parseDouble(row[valueIndex]);
-                groups.computeIfAbsent(key, k -> new ArrayList<>()).add(val);
-            } catch (Exception ignored) {}
+            Double val = tryParse(row[valueIndex]);
+            if (val == null) continue;
+            groups.computeIfAbsent(key, k -> new AggregateState())
+                    .add(val);
         }
 
-        List<String[]> result = new ArrayList<>();
-        result.add(new String[]{groupBy, operation + "_" + column});
+        Iterator<Map.Entry<String, AggregateState>> iterator = groups.entrySet().iterator();
 
-        for (Map.Entry<String, List<Double>> entry : groups.entrySet()) {
+        return new DataIterator() {
 
-            List<Double> values = entry.getValue();
+            boolean headerReturned = false;
 
-            double agg;
-
-            switch (operation) {
-                case "sum" -> agg = values.stream().mapToDouble(Double::doubleValue).sum();
-                case "avg" -> agg = values.stream().mapToDouble(Double::doubleValue).average().orElse(0);
-                case "min" -> agg = values.stream().mapToDouble(Double::doubleValue).min().orElse(0);
-                case "max" -> agg = values.stream().mapToDouble(Double::doubleValue).max().orElse(0);
-                case "count" -> agg = values.size();
-                default -> throw new RuntimeException("Invalid aggregation: " + operation);
+            @Override
+            public boolean hasNext() {
+                return !headerReturned || iterator.hasNext();
             }
 
-            result.add(new String[]{entry.getKey(), String.valueOf(agg)});
+            @Override
+            public String[] next() {
+
+                if (!headerReturned) {
+                    headerReturned = true;
+                    return new String[]{groupBy, operation + "_" + column};
+                }
+
+                Map.Entry<String, AggregateState> entry = iterator.next();
+                double result = entry.getValue().compute(operation);
+
+                return new String[]{entry.getKey(), String.valueOf(result)};
+            }
+        };
+    }
+
+    static class AggregateState {
+        double sum = 0;
+        int count = 0;
+        double min = Double.MAX_VALUE;
+        double max = Double.MIN_VALUE;
+
+        void add(double val) {
+            sum += val;
+            count++;
+            min = Math.min(min, val);
+            max = Math.max(max, val);
         }
 
-        ctx.setData(result);
+        double compute(String operation) {
+            return switch (operation) {
+                case "sum" -> sum;
+                case "avg" -> count == 0 ? 0 : sum / count;
+                case "min" -> count == 0 ? 0 : min;
+                case "max" -> count == 0 ? 0 : max;
+                case "count" -> count;
+                default -> throw new RuntimeException("Invalid aggregation: " + operation);
+            };
+        }
+    }
+
+    private Double tryParse(String s) {
+        try { return Double.parseDouble(s); }
+        catch (Exception e) { return null; }
     }
 }

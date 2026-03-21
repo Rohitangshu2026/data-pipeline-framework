@@ -1,21 +1,27 @@
 package org.example.datapipeline.executor.action;
 
+import org.example.datapipeline.executor.action.transform.TransformAction;
+
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Maintains a registry of available action executors and provides
- * a centralized mechanism to retrieve them based on action type.
+ * Acts as a central registry for all available action executors in the pipeline.
  *
- * Each ActionExecutor implementation registers itself with a unique
- * type identifier, allowing the execution engine to dynamically resolve
- * and invoke the appropriate action at runtime.
+ * Maps action types to their corresponding implementations and provides
+ * a lookup mechanism to retrieve them during execution.
  *
- * This design enables easy extensibility — new action types can be added
- * simply by registering them without modifying existing execution logic.
+ * Executors are registered once and reused, allowing the pipeline to
+ * dynamically resolve and execute actions based on configuration.
  *
- * The registry ensures that only supported actions are executed and
- * throws an exception if an unknown action type is requested.
+ * Supports:
+ * - bash      : executes shell scripts
+ * - transform : performs in-memory data transformations
+ *
+ * Throws an exception if an unsupported action type is requested.
+ *
+ * This design enables easy extensibility by allowing new actions to be
+ * added through registration without modifying existing logic.
  */
 public class ActionRegistry{
 

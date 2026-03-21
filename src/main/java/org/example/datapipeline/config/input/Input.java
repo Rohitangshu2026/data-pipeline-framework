@@ -1,5 +1,8 @@
 package org.example.datapipeline.config.input;
 
+import org.example.datapipeline.executor.iterator.DataIterator;
+import org.example.datapipeline.executor.iterator.CsvDataIterator;
+
 import jakarta.xml.bind.annotation.*;
 
 import java.io.BufferedReader;
@@ -8,22 +11,24 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Represents the input source for a task in a pipeline stage.
+ * Represents the input source for a pipeline task.
  *
  * Supports multiple input types such as CSV files and databases,
- * as defined in the pipeline XML configuration.
+ * as defined in the pipeline configuration. Provides utilities to
+ * identify the input type, retrieve the source location, and access
+ * data either in-memory or as a stream.
  *
- * Provides helper methods to:
- * - Identify the input type (CSV or DB)
- * - Retrieve the source location
- * - Read input data into an in-memory structure for processing
+ * For CSV inputs:
+ * - Data can be fully loaded into memory as a list of rows
+ * - Data can be consumed lazily using a streaming iterator
  *
- * For CSV inputs, the data is loaded as a list of rows,
- * where each row is represented as a string array.
+ * Streaming mode enables efficient processing of large datasets
+ * without loading the entire file into memory, making it suitable
+ * for scalable pipeline execution.
  *
  * Database input support is defined but not yet implemented.
  *
- * This class acts as the data extraction layer in the ETL pipeline.
+ * This class acts as the entry point for data ingestion within the framework.
  */
 @XmlAccessorType(XmlAccessType.FIELD)
 public class Input {
@@ -78,5 +83,12 @@ public class Input {
         }
 
         return data;
+    }
+
+    public DataIterator streamData() {
+        if (isCsv()) {
+            return new CsvDataIterator(csv.getSrc());
+        }
+        throw new RuntimeException("Streaming not supported for this input type");
     }
 }

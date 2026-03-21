@@ -1,43 +1,44 @@
 package org.example.datapipeline.executor.action.transform;
 
 import org.example.datapipeline.executor.context.ExecutionContext;
+import org.example.datapipeline.executor.iterator.DataIterator;
 
-import java.util.*;
+import java.util.Map;
 
 /**
- * Applies a transformation to a numeric column across all rows in the dataset.
+ * Applies a row-wise transformation to a numeric column in a streaming dataset.
  *
- * Performs a row-wise operation on a specified column by modifying its value
- * using a given arithmetic operation and constant value. The header row is preserved.
+ * Reads input data lazily using an iterator and updates the specified column
+ * by applying an arithmetic operation with a constant value. The header row
+ * is preserved and passed through unchanged.
  *
  * Supported operations:
- * - add       : adds a value to the column
- * - subtract  : subtracts a value from the column
- * - multiply  : multiplies the column by a value
- * - divide    : divides the column by a value
+ * - add       : adds a constant value
+ * - subtract  : subtracts a constant value
+ * - multiply  : multiplies by a constant value
+ * - divide    : divides by a constant value
  *
  * The method expects parameters for:
  * - column    : column to be transformed
  * - operation : arithmetic operation to apply
  * - value     : numeric value used in the operation
  *
- * Only numeric columns are supported. If a value cannot be parsed as a number,
- * execution fails.
+ * Each row is processed independently, and only the target column is modified.
+ * Rows are cloned before modification to avoid mutating the original input.
  *
- * Input data is read from the execution context and transformed in memory.
- * The resulting dataset replaces the original data in the context.
+ * The transformation is performed in a streaming manner, enabling efficient
+ * processing of large datasets without loading the entire input into memory.
+ *
+ * The result is returned as an iterator that yields:
+ * - the original header row
+ * - transformed data rows
  */
 public class MapTransform implements TransformMethod {
 
     @Override
-    public void apply(ExecutionContext ctx) {
+    public DataIterator apply(DataIterator input, ExecutionContext ctx) {
 
-        List<String[]> data = ctx.getData();
         Map<String, String> params = ctx.getMethod().getParamMap();
-
-        if (data == null || data.isEmpty()) {
-            throw new RuntimeException("No data available for map");
-        }
 
         String column = params.get("column");
         String operation = params.get("operation");
@@ -47,48 +48,66 @@ public class MapTransform implements TransformMethod {
             throw new RuntimeException("Missing params for map");
         }
 
-        String[] header = data.get(0);
+        double val;
+        try {
+            val = Double.parseDouble(value);
+        } catch (Exception e) {
+            throw new RuntimeException("Invalid numeric value: " + value);
+        }
 
-        int colIndex = -1;
-        for (int i = 0; i < header.length; i++) {
-            if (header[i].equals(column)) {
-                colIndex = i;
-                break;
+        return new DataIterator() {
+
+            String[] header;
+            int colIndex = -1;
+            boolean headerProcessed = false;
+
+            @Override
+            public boolean hasNext() {
+                return input.hasNext();
             }
-        }
 
-        if (colIndex == -1) {
-            throw new RuntimeException("Column not found: " + column);
-        }
+            @Override
+            public String[] next() {
 
-        List<String[]> result = new ArrayList<>();
-        result.add(header);
-
-        for (int i = 1; i < data.size(); i++) {
-
-            String[] row = data.get(i).clone();
-
-            try {
-                double num = Double.parseDouble(row[colIndex]);
-                double val = Double.parseDouble(value);
-
-                switch (operation) {
-                    case "add" -> num += val;
-                    case "subtract" -> num -= val;
-                    case "multiply" -> num *= val;
-                    case "divide" -> num /= val;
-                    default -> throw new RuntimeException("Invalid operation: " + operation);
+                if (!headerProcessed) {
+                    header = input.next();
+                    colIndex = getColumnIndex(header, column);
+                    headerProcessed = true;
+                    return header;
                 }
 
-                row[colIndex] = String.valueOf(num);
+                String[] row = input.next().clone();
 
-            } catch (NumberFormatException e) {
-                throw new RuntimeException("Map supports numeric values only");
+                if (colIndex >= row.length) {
+                    return row;
+                }
+
+                try {
+                    double num = Double.parseDouble(row[colIndex]);
+
+                    switch (operation) {
+                        case "add" -> num += val;
+                        case "subtract" -> num -= val;
+                        case "multiply" -> num *= val;
+                        case "divide" -> num /= val;
+                        default -> throw new RuntimeException("Invalid operation: " + operation);
+                    }
+
+                    row[colIndex] = String.valueOf(num);
+
+                } catch (NumberFormatException e) {
+                    throw new RuntimeException("Map supports numeric values only");
+                }
+
+                return row;
             }
+        };
+    }
 
-            result.add(row);
+    private int getColumnIndex(String[] header, String column) {
+        for (int i = 0; i < header.length; i++) {
+            if (header[i].trim().equalsIgnoreCase(column)) return i;
         }
-
-        ctx.setData(result);
+        throw new RuntimeException("Column not found: " + column);
     }
 }

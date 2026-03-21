@@ -1,80 +1,132 @@
 package org.example.datapipeline.executor.action.transform;
 
 import org.example.datapipeline.executor.context.ExecutionContext;
+import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
 /**
- * Selects a subset of columns from the dataset and discards the rest.
+ * Projects a subset of columns from a streaming dataset.
  *
- * Projects each row onto a specified set of columns while preserving
- * the order defined in the configuration. The header is updated to
- * reflect only the selected columns.
+ * Consumes input rows lazily and emits only the specified columns
+ * in the order defined by the configuration. The header is transformed
+ * to include only the selected columns.
  *
  * The method expects parameters for:
  * - columns : comma-separated list of column names to retain
  *
- * For each row, values corresponding to the selected columns are extracted
- * and arranged in the specified order. If a column is missing in the header,
- * execution fails.
+ * During initialization, the header row is used to resolve column indices.
+ * If any requested column is not found, execution fails immediately.
  *
- * Input data is read from the execution context and transformed in memory.
- * The resulting dataset replaces the original data in the context.
+ * Each subsequent row is transformed by extracting values corresponding
+ * to the selected columns. Missing values are replaced with empty strings.
+ *
+ * The transformation is performed in a streaming manner with minimal buffering,
+ * ensuring efficient processing of large datasets without loading the entire
+ * input into memory.
+ *
+ * The result is returned as an iterator that yields:
+ * - a new header containing only selected columns
+ * - projected data rows with values in the specified order
  */
 public class SelectTransform implements TransformMethod {
 
     @Override
-    public void apply(ExecutionContext ctx) {
+    public DataIterator apply(DataIterator input, ExecutionContext ctx) {
 
-        List<String[]> data = ctx.getData();
         Map<String, String> params = ctx.getMethod().getParamMap();
-
-        if (data == null || data.isEmpty()) {
-            throw new RuntimeException("No data available for select");
-        }
 
         String columnsParam = params.get("columns");
         if (columnsParam == null) {
             throw new RuntimeException("Missing 'columns' param for select");
         }
 
-        String[] requiredCols = columnsParam.split(",");
-
-        String[] header = data.get(0);
-
-        Map<String, Integer> colIndexMap = new HashMap<>();
-        for (int i = 0; i < header.length; i++) {
-            colIndexMap.put(header[i].trim(), i);
-        }
-
-        List<String[]> result = new ArrayList<>();
-
-        // new header
-        String[] newHeader = Arrays.stream(requiredCols)
+        String[] requiredCols = Arrays.stream(columnsParam.split(","))
                 .map(String::trim)
                 .toArray(String[]::new);
 
-        result.add(newHeader);
+        return new DataIterator() {
 
-        for (int i = 1; i < data.size(); i++) {
+            String[] header;
+            int[] indices;
+            boolean headerProcessed = false;
 
-            String[] row = data.get(i);
-            String[] newRow = new String[newHeader.length];
+            String[] nextRow = null;
+            boolean fetched = false;
 
-            for (int j = 0; j < newHeader.length; j++) {
-                String col = newHeader[j];
+            @Override
+            public boolean hasNext() {
 
-                Integer idx = colIndexMap.get(col);
-                if (idx == null) {
-                    throw new RuntimeException("Column not found: " + col);
+                if (!headerProcessed) {
+                    return input.hasNext();
                 }
 
-                newRow[j] = idx < row.length ? row[idx] : "";
+                if (fetched) return nextRow != null;
+
+                if (input.hasNext()) {
+                    nextRow = input.next();
+                    fetched = true;
+                    return true;
+                }
+
+                nextRow = null;
+                fetched = true;
+                return false;
             }
 
-            result.add(newRow);
-        }
+            @Override
+            public String[] next() {
 
-        ctx.setData(result);
+                // HEADER
+                if (!headerProcessed) {
+                    if (!input.hasNext()) {
+                        throw new RuntimeException("Empty input data");
+                    }
+
+                    header = input.next();
+
+                    Map<String, Integer> colIndexMap = new HashMap<>();
+                    for (int i = 0; i < header.length; i++) {
+                        colIndexMap.put(header[i].trim(), i);
+                    }
+
+                    indices = new int[requiredCols.length];
+
+                    for (int i = 0; i < requiredCols.length; i++) {
+                        Integer idx = colIndexMap.get(requiredCols[i]);
+                        if (idx == null) {
+                            throw new RuntimeException("Column not found: " + requiredCols[i]);
+                        }
+                        indices[i] = idx;
+                    }
+
+                    headerProcessed = true;
+                    return requiredCols;
+                }
+
+                if (!fetched) {
+                    if (!hasNext()) {
+                        throw new RuntimeException("No more elements");
+                    }
+                }
+
+                if (nextRow == null) {
+                    throw new RuntimeException("No more elements");
+                }
+
+                String[] row = nextRow;
+                nextRow = null;
+                fetched = false;
+
+                String[] newRow = new String[indices.length];
+
+                for (int i = 0; i < indices.length; i++) {
+                    int idx = indices[i];
+                    newRow[i] = idx < row.length ? row[idx] : "";
+                }
+
+                return newRow;
+            }
+        };
     }
 }

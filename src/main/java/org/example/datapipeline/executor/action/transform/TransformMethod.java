@@ -1,6 +1,7 @@
 package org.example.datapipeline.executor.action.transform;
 
 import org.example.datapipeline.executor.context.ExecutionContext;
+import org.example.datapipeline.executor.iterator.DataIterator;
 
 /**
  * Defines a contract for implementing transformation operations
@@ -13,5 +14,5 @@ import org.example.datapipeline.executor.context.ExecutionContext;
  * filtering, projection, mapping, or aggregation.
  */
 public interface TransformMethod {
-    void apply(ExecutionContext ctx);
+    DataIterator apply(DataIterator input, ExecutionContext ctx);
 }

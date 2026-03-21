@@ -1,28 +1,32 @@
 package org.example.datapipeline.config.output;
 
 import jakarta.xml.bind.annotation.*;
+import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.util.List;
+import java.io.File;
 
 /**
- * Represents the output destination for a task in a pipeline stage.
+ * Represents the output destination for a pipeline task.
  *
  * Supports multiple output types such as CSV files and databases,
- * as defined in the pipeline XML configuration.
+ * as defined in the pipeline configuration. Provides utilities to
+ * identify the output type, resolve the destination location, and
+ * write processed data to the configured target.
  *
- * Provides helper methods to:
- * - Identify the output type (CSV or DB)
- * - Retrieve the destination location
- * - Write processed data from memory to the configured output
+ * For CSV outputs:
+ * - Data is written incrementally using a streaming iterator
+ * - Each row is serialized as a comma-separated record
+ * - Output directories are created automatically if they do not exist
  *
- * For CSV outputs, the data is written row by row,
- * where each row is represented as a string array.
+ * Streaming-based writing enables efficient handling of large datasets
+ * without requiring the entire result to be held in memory.
  *
  * Database output support is defined but not yet implemented.
  *
- * This class acts as the data loading layer in the ETL pipeline.
+ * This class serves as the final data emission layer of the framework.
  */
 @XmlAccessorType(XmlAccessType.FIELD)
 public class Output{
@@ -46,31 +50,49 @@ public class Output{
         return db != null;
     }
 
-    public void writeData(List<String[]> data) {
+    private void writeCsv(DataIterator it) {
+
+        try {
+            File file = new File(csv.getSrc());
+            if (file.getParentFile() != null) {
+                file.getParentFile().mkdirs();   // ✅ safe directory creation
+            }
+
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+
+                int count = 0;
+
+                while (it.hasNext()) {
+                    String[] row = it.next();
+
+                    if (row == null) {
+                        throw new RuntimeException("Iterator returned null row");
+                    }
+
+                    writer.write(String.join(",", row));
+                    writer.newLine();
+
+                    count++;
+                }
+
+                System.out.println("Rows written: " + count);
+
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new RuntimeException("Failed to write CSV: " + csv.getSrc(), e);
+        }
+    }
+
+    public void writeData(DataIterator it) {
 
         if (isCsv()) {
-            writeCsv(data);
+            writeCsv(it);
             return;
-        }
-
-        if (isDb()) {
-            throw new RuntimeException("DB output not implemented yet");
         }
 
         throw new RuntimeException("No valid output defined");
     }
 
-    private void writeCsv(List<String[]> data) {
-
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(csv.getSrc()))) {
-
-            for (String[] row : data) {
-                writer.write(String.join(",", row));
-                writer.newLine();
-            }
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to write CSV: " + csv.getSrc(), e);
-        }
-    }
 }

@@ -6,6 +6,7 @@ import org.example.datapipeline.config.Task;
 import org.example.datapipeline.executor.context.ExecutionContext;
 import org.example.datapipeline.executor.action.ActionExecutor;
 import org.example.datapipeline.executor.action.ActionRegistry;
+import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.List;
 
@@ -72,15 +73,16 @@ public class PipelineExecutor {
 
             ctx.getMetadata().put("stageId", stage.getId());
 
-            List<String[]> data = task.getInput().readData();
-            ctx.setData(data);
+            DataIterator it = task.getInput().streamData();
+            ctx.setIterator(it);
 
             ActionExecutor executor = ActionRegistry.getAction(
                     task.getAction().getType()
             );
             executor.execute(ctx);
 
-            task.getOutput().writeData(ctx.getData());
+            DataIterator result = ctx.getIterator();
+            task.getOutput().writeData(result);
 
         }
     }
