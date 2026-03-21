@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+    targetNamespace="https://data-pipeline-config.netlify.app/"
+    elementFormDefault="qualified"
+    xmlns:p="https://data-pipeline-config.netlify.app/">
+
+    <xs:element name="job" type="p:JobType"/>
+
+
+    <!-- JobType -->
+    <xs:complexType name="JobType">
+        <xs:sequence>
+            <xs:element name="stage" type="p:StageType"  minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="id" type="p:NonEmptyString" use="required"/>
+    </xs:complexType> 
+
+    <!-- StageType-->
+    <xs:complexType name="StageType">
+        <xs:sequence>
+            <xs:element name="on_error" type="p:OnErrorType" minOccurs="0" maxOccurs="1"/>
+            <xs:element name="task" type="p:TaskType" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="id" type="xs:ID" use="required"/>
+        <xs:attribute name="pre_req" type="xs:IDREFS" use="optional"/>
+    </xs:complexType>
+
+    <!--TaskType-->
+    <xs:complexType name="TaskType">
+        <xs:sequence>
+            <xs:element name="input" type="p:InputType" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="action" type="p:ActionType" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="output" type="p:OutputType" minOccurs="1" maxOccurs="1"/>
+        </xs:sequence>   
+    </xs:complexType>
+
+    <!--InputType-->
+    <xs:complexType name="InputType">
+        <xs:choice>
+            <xs:element name="csv" type="p:CsvType"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <!--OutputType-->
+    <xs:complexType name="OutputType">
+        <xs:choice>
+            <xs:element name="csv" type="p:CsvType"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <!--ActionType-->
+    <xs:complexType name="ActionType">
+        <xs:choice>
+            <xs:element name="filterRow" type="p:FilterRowActionType"/>
+        </xs:choice>
+    </xs:complexType>  
+
+
+    <!--input output formats-->
+    <xs:complexType name="CsvType">
+        <xs:attribute name="src" type="p:NonEmptyString" use="required"/>
+    </xs:complexType>
+
+    <!--action formats-->
+    <xs:complexType name="FilterRowActionType">
+        <xs:attribute name="column" type="p:NonEmptyString" use="required"/>
+        <xs:attribute name="operator" type="p:NonEmptyString" use="required"/>
+        <xs:attribute name="value" type="p:NonEmptyString" use="required"/>
+    </xs:complexType>   
+
+    <!--OnErrorType-->
+    <xs:complexType name="OnErrorType">
+        <xs:attribute name="handling_strategy" type="p:HandlingStrategyEnum" use="required"/>
+        <xs:attribute name="retry_count" type="xs:nonNegativeInteger" use="optional"/>
+    </xs:complexType>    
+
+    <!--Utilities-->
+
+    <!--NonEmptyString type-->
+    <xs:simpleType name="NonEmptyString">
+        <xs:restriction base="xs:token">
+            <xs:minLength value="1"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+    <!--HandlingStrategyEnum type-->
+    <xs:simpleType name="HandlingStrategyEnum">
+        <xs:restriction base="xs:token">
+            <xs:enumeration value="STOP"/>
+            <xs:enumeration value="SKIP"/>
+            <xs:enumeration value="RETRY"/>
+        </xs:restriction>
+    </xs:simpleType>
+
+</xs:schema>
+
+   
+
+    

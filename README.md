@@ -268,3 +268,73 @@ Covered scenarios:
 mvn clean install
 java -cp target/classes org.example.datapipeline.Main <pipeline.xml>
 ```
+
+---
+
+## Advanced XSD Schema Design (v2)
+
+To create a highly extensible, deeply validated pipeline framework, we entirely redesigned the `job.xsd` schema into `superiorjob.xsd`.
+
+### Schema Architecture Diagram
+
+```mermaid
+classDiagram
+    direction TB
+
+    class JobType {
+        +xs:token id
+        +StageType[] stage
+    }
+
+    class StageType {
+        +xs:ID id
+        +xs:IDREFS pre_req
+        +OnErrorType on_error
+        +TaskType[] task
+    }
+
+    class TaskType {
+        +InputType input
+        +ActionType action
+        +OutputType output
+    }
+
+    class InputType {
+        <<xs:choice>>
+        +CsvType csv
+        +FutureInputs...
+    }
+
+    class ActionType {
+        <<xs:choice>>
+        +FilterRowActionType filterRow
+        +FutureActions...
+    }
+
+    class OutputType {
+        <<xs:choice>>
+        +CsvType csv
+        +FutureOutputs...
+    }
+
+    JobType "1" --> "1..*" StageType : contains
+    StageType "1" --> "1..*" TaskType : contains
+    TaskType "1" --> "1" InputType : uses
+    TaskType "1" --> "1" ActionType : uses
+    TaskType "1" --> "1" OutputType : uses
+```
+
+### Core Design Decisions & Justifications
+
+1. **Venetian Blind Pattern (Modularity)**
+Instead of deeply nesting "Russian Doll" inline structures, the schema defines global `<xs:complexType>` building blocks (e.g., `JobType`, `StageType`). This keeps the schema incredibly readable and allows massive pipeline enterprise architectures to reuse these foundational domain types if imported.
+
+2. **Polymorphic I/O & Actions (`<xs:choice>`)**
+Instead of defining a single generic `<input type="csv">` tag loaded with dozens of optional attributes, we enforce **Polymorphic Elements** (e.g., `<input><csv src="..."/></input>`). This acts as an explicit schema `switch` statement.
+   - **Justification:** It prevents users from writing illegal attribute combinations, and it seamlessly wires into Java `JAXB`. JAXB automatically generates an abstract `Input` base class with concrete `CsvInput` subclasses so the Java layer doesn't need giant, unmaintainable if-else action routers.
+
+3. **Strict Type Safety over Raw Strings**
+Instead of allowing whitespace-heavy raw `xs:string` values, the schema enforces:
+   - `NonEmptyString` (`minLength=1` on `xs:token`) to prevent accidently supplying `<job id=" ">`
+   - `xs:nonNegativeInteger` for `retry_count` so users cannot retry a pipeline `-5` times
+   - `HandlingStrategyEnum` so the `on_error` strategy only accepts exact backend-supported behaviors (`STOP`, `SKIP`, `RETRY`), instantly intercepting typos at parse-time.
