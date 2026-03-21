@@ -56,5 +56,4 @@ Thumbs.db
 ## =========================
 #src/main/resources/pipeline_*.xml
 
-*.csv
 src/main/resources/output/
