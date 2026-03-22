@@ -1,45 +1,16 @@
 package org.example.datapipeline.executor.action.transform;
 
-import org.example.datapipeline.executor.context.ExecutionContext;
+import org.example.datapipeline.config.action.Method;
 import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
-/**
- * Performs grouped aggregation on streaming input data.
- *
- * Consumes rows from the input iterator, groups them by a specified column,
- * and applies an aggregation operation on another numeric column.
- *
- * Supported operations:
- * - sum   : total of values in each group
- * - avg   : average value per group
- * - min   : minimum value per group
- * - max   : maximum value per group
- * - count : number of valid numeric entries per group
- *
- * The method expects parameters for:
- * - group_by : column used to form groups
- * - column   : column on which aggregation is performed
- * - operation: aggregation type to apply
- *
- * The input is processed in a streaming manner, but aggregation requires
- * maintaining intermediate state for each group in memory. Non-numeric
- * values are ignored during computation.
- *
- * The result is exposed as a new iterator producing:
- * - a header row with group and aggregated column
- * - one row per group containing the computed value
- *
- * This transform enables scalable group-based computations while
- * preserving compatibility with the framework's iterator-based execution model.
- */
-public class AggregateTransform implements TransformMethod {
+public class AggregateStrategy implements TransformStrategy {
 
     @Override
-    public DataIterator apply(DataIterator input, ExecutionContext ctx) {
+    public DataIterator apply(DataIterator input, Method method) {
 
-        Map<String, String> params = ctx.getMethod().getParamMap();
+        Map<String, String> params = method.getParamMap();
 
         String groupBy = params.get("group_by");
         String operation = params.get("operation");

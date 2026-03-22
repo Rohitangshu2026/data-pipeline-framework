@@ -1,6 +1,7 @@
 package org.example.datapipeline.executor.action;
 
 import org.example.datapipeline.executor.action.transform.TransformAction;
+import org.example.datapipeline.executor.action.join.JoinAction;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -30,6 +31,7 @@ public class ActionRegistry{
     static {
         register(new BashAction());
         register(new TransformAction());
+        register(new JoinAction());
     }
 
     private static void register(ActionExecutor action){

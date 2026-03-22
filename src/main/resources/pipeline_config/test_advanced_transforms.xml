@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="test_advanced">
+    <stage id="stage1">
+        <task>
+            <input>
+                <csv src="src/main/resources/input/employees.csv"/>
+            </input>
+            <action type="transform">
+                <method name="drop_nulls">
+                    <param name="columns" value="name"/>
+                </method>
+            </action>
+            <output>
+                <csv src="src/main/resources/output/test_1_drop.csv"/>
+            </output>
+        </task>
+        <task>
+            <input>
+                <csv src="src/main/resources/output/test_1_drop.csv"/>
+            </input>
+            <action type="transform">
+                <method name="derive">
+                    <param name="new_column" value="bonus"/>
+                    <param name="formula" value="salary * 0.1"/>
+                </method>
+            </action>
+            <output>
+                <csv src="src/main/resources/output/test_2_derive.csv"/>
+            </output>
+        </task>
+    </stage>
+
+    <stage id="stage2" pre_req="stage1">
+        <task>
+            <input>
+                <csv src="src/main/resources/output/test_2_derive.csv"/>
+            </input>
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key" value="dept_id"/>
+                    <param name="right_key" value="dept_id"/>
+                    <param name="right_src" value="src/main/resources/input/departments.csv"/>
+                </method>
+            </action>
+            <output>
+                <csv src="src/main/resources/output/test_3_join.csv"/>
+            </output>
+        </task>
+    </stage>
+
+    <stage id="stage3" pre_req="stage2">
+        <task>
+            <input>
+                <csv src="src/main/resources/output/test_3_join.csv"/>
+            </input>
+            <action type="transform">
+                <method name="sort">
+                    <param name="column" value="bonus"/>
+                    <param name="order" value="desc"/>
+                </method>
+            </action>
+            <output>
+                <csv src="src/main/resources/output/test_4_sort.csv"/>
+            </output>
+        </task>
+    </stage>
+
+    <stage id="stage4" pre_req="stage3">
+        <task>
+            <input>
+                <csv src="src/main/resources/output/test_4_sort.csv"/>
+            </input>
+            <action type="transform">
+                <method name="limit">
+                    <param name="count" value="5"/>
+                </method>
+            </action>
+            <output>
+                <csv src="src/main/resources/output/test_5_limit.csv"/>
+            </output>
+        </task>
+    </stage>
+</job>

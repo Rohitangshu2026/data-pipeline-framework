@@ -1,45 +1,16 @@
 package org.example.datapipeline.executor.action.transform;
 
-import org.example.datapipeline.executor.context.ExecutionContext;
+import org.example.datapipeline.config.action.Method;
 import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
-/**
- * Filters rows from a streaming dataset based on a condition applied to a specific column.
- *
- * Processes input data lazily using an iterator and emits only those rows
- * that satisfy the given condition. The header row is preserved and passed through unchanged.
- *
- * Supported operators:
- * - >   : greater than (numeric)
- * - <   : less than (numeric)
- * - =   : equal to (numeric or string)
- * - >=  : greater than or equal to (numeric)
- * - <=  : less than or equal to (numeric)
- *
- * The method expects parameters for:
- * - column   : column on which the condition is applied
- * - operator : comparison operator
- * - value    : value to compare against
- *
- * Numeric comparisons are performed when both the cell value and comparison
- * value can be parsed as numbers. Otherwise, a string equality check is used.
- *
- * The transformation is applied in a streaming fashion, buffering only the
- * next valid row when needed. This enables efficient processing of large datasets
- * without loading the entire input into memory.
- *
- * The result is returned as a new iterator that yields:
- * - the original header row
- * - filtered data rows satisfying the condition
- */
-public class FilterTransform implements TransformMethod {
+public class FilterStrategy implements TransformStrategy {
 
     @Override
-    public DataIterator apply(DataIterator input, ExecutionContext ctx) {
+    public DataIterator apply(DataIterator input, Method method) {
 
-        Map<String, String> params = ctx.getMethod().getParamMap();
+        Map<String, String> params = method.getParamMap();
 
         String column = params.get("column");
         String operator = params.get("operator");
