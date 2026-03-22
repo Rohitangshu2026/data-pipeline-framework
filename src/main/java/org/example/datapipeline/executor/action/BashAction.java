@@ -1,16 +1,16 @@
 package org.example.datapipeline.executor.action;
 
-import org.example.datapipeline.config.input.Input;
+
 import org.example.datapipeline.executor.context.ExecutionContext;
 import org.example.datapipeline.config.action.Method;
-import org.example.datapipeline.config.output.Output;
+
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.Arrays;
+
 
 /**
  * Executes bash-based actions within the data pipeline.

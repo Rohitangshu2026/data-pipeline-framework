@@ -5,7 +5,6 @@ import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
-import java.util.List;
 import java.io.File;
 
 /**

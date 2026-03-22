@@ -1,6 +1,5 @@
 package org.example.datapipeline.executor.iterator;
 
-import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.io.BufferedReader;
 import java.io.FileReader;

@@ -53,7 +53,6 @@ public class PipelineExecutor {
 
         for (Task task : stage.getTasks()) {
 
-            String action = task.getAction().getType();
 
             String log = String.format(
                     "\n[%s] TASK START\nInput: %s\nAction: %s\nMethod: %s\nOutput: %s\n",

@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
 
+    <xs:element name="job" type="JobType"/>
+
+    <!-- Global Types -->
     <xs:simpleType name="HandlingStrategyEnum">
         <xs:restriction base="xs:string">
             <xs:enumeration value="retry"/>
@@ -10,119 +12,86 @@
         </xs:restriction>
     </xs:simpleType>
 
-    <!-- ================= JOB ================= -->
-    <xs:element name="job">
-        <xs:complexType>
-            <xs:sequence>
-                <xs:element name="stage" maxOccurs="unbounded">
-                    <xs:complexType>
-                        <xs:sequence>
-                            <!-- Error Handling -->
-                            <xs:element name="on_error" minOccurs="0">
-                                <xs:complexType>
-                                    <xs:attribute name="handling_strategy" type="HandlingStrategyEnum" use="required"/>
-                                    <xs:attribute name="retry_count" type="xs:nonNegativeInteger" use="optional"/>
-                                </xs:complexType>
-                            </xs:element>
+    <xs:complexType name="JobType">
+        <xs:sequence>
+            <xs:element name="stage" type="StageType" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="id" type="xs:ID" use="required"/>
+    </xs:complexType>
 
-                            <!-- Tasks -->
-                            <xs:element name="task" maxOccurs="unbounded">
-                                <xs:complexType>
-                                    <xs:sequence>
+    <xs:complexType name="StageType">
+        <xs:sequence>
+            <xs:element name="on_error" type="OnErrorType" minOccurs="0"/>
+            <xs:element name="task" type="TaskType" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="id" type="xs:ID" use="required"/>
+        <xs:attribute name="pre_req" type="xs:IDREFS" use="optional"/>
+    </xs:complexType>
 
-                                        <!-- INPUT -->
-                                        <xs:element name="input" minOccurs="0">
-                                            <xs:complexType>
-                                                <xs:choice>
+    <xs:complexType name="OnErrorType">
+        <xs:attribute name="handling_strategy" type="HandlingStrategyEnum" use="required"/>
+        <xs:attribute name="retry_count" type="xs:nonNegativeInteger" use="optional"/>
+    </xs:complexType>
 
-                                                    <!-- CSV -->
-                                                    <xs:element name="csv">
-                                                        <xs:complexType>
-                                                            <xs:attribute name="src" type="xs:string" use="required"/>
-                                                        </xs:complexType>
-                                                    </xs:element>
+    <xs:complexType name="TaskType">
+        <xs:sequence>
+            <xs:element name="input" type="InputType" minOccurs="1"/>
+            <xs:element name="action" type="ActionType"/>
+            <xs:element name="output" type="OutputType" minOccurs="1"/>
+        </xs:sequence>
+    </xs:complexType>
 
-                                                    <!-- DATABASE -->
-                                                    <xs:element name="db">
-                                                        <xs:complexType>
-                                                            <xs:attribute name="connection" type="xs:string" use="required"/>
-                                                            <xs:attribute name="query" type="xs:string" use="required"/>
-                                                        </xs:complexType>
-                                                    </xs:element>
+    <xs:complexType name="InputType">
+        <xs:choice>
+            <xs:element name="csv" type="CsvInputType"/>
+            <xs:element name="db" type="DbInputType"/>
+        </xs:choice>
+    </xs:complexType>
 
-                                                </xs:choice>
-                                            </xs:complexType>
-                                        </xs:element>
+    <xs:complexType name="CsvInputType">
+        <xs:attribute name="src" type="xs:string" use="required"/>
+    </xs:complexType>
 
-                                        <!-- ACTION -->
-                                        <xs:element name="action">
-                                            <xs:complexType>
-                                                <xs:sequence>
+    <xs:complexType name="DbInputType">
+        <xs:attribute name="connection" type="xs:string" use="required"/>
+        <xs:attribute name="query" type="xs:string" use="required"/>
+    </xs:complexType>
 
-                                                    <!-- METHOD -->
-                                                    <xs:element name="method">
-                                                        <xs:complexType>
-                                                            <xs:sequence>
+    <xs:complexType name="ActionType">
+        <xs:sequence>
+            <xs:element name="method" type="MethodType"/>
+        </xs:sequence>
+        <xs:attribute name="type" type="xs:string" use="required"/>
+    </xs:complexType>
 
-                                                                <!-- PARAMS -->
-                                                                <xs:element name="param" minOccurs="0" maxOccurs="unbounded">
-                                                                    <xs:complexType>
-                                                                        <xs:attribute name="name" type="xs:string" use="required"/>
-                                                                        <xs:attribute name="value" type="xs:string" use="required"/>
-                                                                        <xs:attribute name="type" type="xs:string" use="optional"/>
-                                                                    </xs:complexType>
-                                                                </xs:element>
+    <xs:complexType name="MethodType">
+        <xs:sequence>
+            <xs:element name="param" type="ParamType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="name" type="xs:string" use="required"/>
+    </xs:complexType>
 
-                                                            </xs:sequence>
-                                                            <xs:attribute name="name" type="xs:string" use="required"/>
-                                                        </xs:complexType>
-                                                    </xs:element>
+    <xs:complexType name="ParamType">
+        <xs:attribute name="name" type="xs:string" use="required"/>
+        <xs:attribute name="value" type="xs:string" use="required"/>
+        <xs:attribute name="type" type="xs:string" use="optional"/>
+    </xs:complexType>
 
-                                                </xs:sequence>
+    <xs:complexType name="OutputType">
+        <xs:choice>
+            <xs:element name="csv" type="CsvOutputType"/>
+            <xs:element name="db" type="DbOutputType"/>
+        </xs:choice>
+    </xs:complexType>
 
-                                                <!-- Action type -->
-                                                <xs:attribute name="type" type="xs:string" use="required"/>
-                                            </xs:complexType>
-                                        </xs:element>
+    <xs:complexType name="CsvOutputType">
+        <xs:attribute name="src" type="xs:string" use="required"/>
+    </xs:complexType>
 
-                                        <!-- OUTPUT -->
-                                        <xs:element name="output" minOccurs="0">
-                                            <xs:complexType>
-                                                <xs:choice>
+    <xs:complexType name="DbOutputType">
+        <xs:attribute name="connection" type="xs:string" use="required"/>
+        <xs:attribute name="table" type="xs:string" use="required"/>
+    </xs:complexType>
 
-                                                    <!-- CSV -->
-                                                    <xs:element name="csv">
-                                                        <xs:complexType>
-                                                            <xs:attribute name="src" type="xs:string" use="required"/>
-                                                        </xs:complexType>
-                                                    </xs:element>
-
-                                                    <!-- DATABASE -->
-                                                    <xs:element name="db">
-                                                        <xs:complexType>
-                                                            <xs:attribute name="connection" type="xs:string" use="required"/>
-                                                            <xs:attribute name="table" type="xs:string" use="required"/>
-                                                        </xs:complexType>
-                                                    </xs:element>
-
-                                                </xs:choice>
-                                            </xs:complexType>
-                                        </xs:element>
-
-                                    </xs:sequence>
-                                </xs:complexType>
-                            </xs:element>
-
-                        </xs:sequence>
-
-                        <xs:attribute name="id" type="xs:ID" use="required"/>
-                        <xs:attribute name="pre_req" type="xs:IDREFS" use="optional"/>
-                    </xs:complexType>
-                </xs:element>
-            </xs:sequence>
-
-            <xs:attribute name="id" type="xs:ID" use="required"/>
-        </xs:complexType>
-    </xs:element>
 
 </xs:schema>

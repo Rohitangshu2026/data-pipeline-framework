@@ -36,37 +36,42 @@
 
     <!--InputType-->
     <xs:complexType name="InputType">
-        <xs:choice>
-            <xs:element name="csv" type="p:CsvType"/>
-        </xs:choice>
+        <xs:sequence>
+            <xs:element name="property" type="p:PropertyType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="type" type="p:NonEmptyString" use="required" /> 
     </xs:complexType>
 
     <!--OutputType-->
     <xs:complexType name="OutputType">
-        <xs:choice>
-            <xs:element name="csv" type="p:CsvType"/>
-        </xs:choice>
+        <xs:sequence>
+            <xs:element name="property" type="p:PropertyType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="type" type="p:NonEmptyString" use="required" /> 
     </xs:complexType>
 
     <!--ActionType-->
     <xs:complexType name="ActionType">
-        <xs:choice>
-            <xs:element name="filterRow" type="p:FilterRowActionType"/>
-        </xs:choice>
-    </xs:complexType>  
-
-
-    <!--input output formats-->
-    <xs:complexType name="CsvType">
-        <xs:attribute name="src" type="p:NonEmptyString" use="required"/>
+        <xs:sequence>
+            <xs:element name="method" type="p:MethodType" minOccurs="1" maxOccurs="1"/>
+        </xs:sequence>
+        <xs:attribute name="type" type="p:NonEmptyString" use="required" />
     </xs:complexType>
 
-    <!--action formats-->
-    <xs:complexType name="FilterRowActionType">
-        <xs:attribute name="column" type="p:NonEmptyString" use="required"/>
-        <xs:attribute name="operator" type="p:NonEmptyString" use="required"/>
-        <xs:attribute name="value" type="p:NonEmptyString" use="required"/>
-    </xs:complexType>   
+    <!--methodType-->
+    <xs:complexType name="MethodType">
+        <xs:sequence>
+            <xs:element name="param" type="p:PropertyType" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="name" type="p:NonEmptyString" use="required" />
+    </xs:complexType>
+
+    <!--Generic property Type-->  
+    <xs:complexType name="PropertyType">
+        <xs:attribute name="name" type="p:NonEmptyString" use="required" />
+        <xs:attribute name="value" type="p:NonEmptyString" use="required" />
+    </xs:complexType>
+    
 
     <!--OnErrorType-->
     <xs:complexType name="OnErrorType">
