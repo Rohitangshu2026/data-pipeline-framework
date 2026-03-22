@@ -18,7 +18,10 @@ https://data-pipeline-config.netlify.app/
 - Topological execution order
 - Modular architecture
 - Extensible execution engine
-- Memory-efficient streaming data processing via Iterators
+- Memory-efficient streaming execution using custom iterators (DataIterator)
+  - Processes data row-by-row (lazy evaluation)
+  - Avoids loading entire datasets into memory
+  - Enables scalable processing of large files
 
 ---
 
@@ -52,18 +55,22 @@ job (id)
     ├── on_error? (handling_strategy, retry_count?)
     └── task+
         ├── input (csv | db)
-        ├── action (type + method + params)
+        ├── action (type)
+        │     └── method (name)
+        │           └── param* (name, value)
         └── output (csv | db)
 ```
 
 ## Java Object Model
 ```
 Job
-└── Stages
-    └── Tasks
-        ├── Input 
-        ├── Action (type + method)
-        └── Output 
+└── Stage
+    └── Task
+        ├── Input
+        ├── Action
+        │     └── Method
+        │           └── Param*
+        └── Output
 ```
 ---
 
@@ -101,42 +108,21 @@ W[Pipeline Complete]
 X[End]
 Z[Stop Pipeline]
 
-A --> B
-B --> C
-C --> D
-D --> E
-E --> F
-F --> G
-G --> H
-
-H -->|Yes| I
-I --> J
-J --> K
-K --> L
-L --> M
-M --> N
-N --> O
-O --> P
-
+A --> B --> C --> D --> E --> F --> G --> H
+H -->|Yes| I --> J --> K --> L --> M --> N --> O --> P
 P -->|No| Q
 P -->|Yes| R
-
 R -->|Retry| O
 R -->|Proceed| Q
 R -->|Abort| Z
-
 Q --> S
 S -->|Yes| L
 S -->|No| T
-
 T --> U
 U -->|Yes| K
 U -->|No| V
-
 V --> H
-
-H -->|No| W
-W --> X
+H -->|No| W --> X
 Z --> X
 
 ```
@@ -199,11 +185,11 @@ Output → Destination (Written incrementally)
 ```
 
 ### Execution Flow
-- Task creates an ExecutionContext
-- ActionRegistry resolves the correct executor
-- ActionExecutor executes using context
-- Data streams through executors via Iterators to minimize memory consumption
-- Metadata (e.g., stageId) flows through execution
+- Input is converted to a DataIterator
+- ExecutionContext is created
+- ActionRegistry resolves executor
+- Action processes the iterator
+- Output is written incrementally
 
 ### ExecutionContext
 
@@ -212,21 +198,21 @@ Runtime object that carries:
 - Input
 - Output
 - Method configuration
-- DataIterator (for streaming records)
+- DataIterator (stream)
 - Metadata (e.g., stageId)
 
 ### ActionExecutor Interface
 
 Each action implements:
 
-- execute(ExecutionContext ctx)
-- getType()
+- void execute(ExecutionContext ctx)
+- String getType()
 
 ### ActionRegistry
 - Maps action types → executors
 - Supports plug-and-play extensibility
 ### Supported Actions
-1. Transformation Actions (In-Memory / Streaming Data Transformations):
+1. Transform:
     - **filter**: Filters rows based on a condition (params: `column`, `operator`, `value`).
     - **select**: Keeps only specified columns (params: `columns`).
     - **map**: Modifies a column's value (params: `column`, `operation`, `value`). Operations: `add`, `multiply`.
@@ -240,24 +226,61 @@ Each action implements:
   - Input = data target
   - Action = execution logic
   - Method params = configuration
+  
 ---
-## Key Interactions
-````
-CLI → Main → Pipeline
+###  Execution Engine
+```java
+levels.get(level)
+    .parallelStream()
+    .forEach(PipelineExecutor::executeStage);
+```
+- Parallel within level
+- Sequential across levels
+---
 
-Pipeline → Parser
-Parser → XML Schema Validation
-Parser → Job Object
+## Sequence Diagram
+````mermaid
+sequenceDiagram
 
-Pipeline → SemanticValidator
-Pipeline → ConfigNormalizer
+participant CLI
+participant Main
+participant Pipeline
+participant Parser as JAXBPipelineParser
+participant Validator as SemanticValidator
+participant Normalizer as ConfigNormalizer
+participant Executor as PipelineExecutor
+participant Job
+participant Stage
+participant Task
 
-Pipeline → PipelineExecutor
+CLI ->> Main: start application
+Main ->> Pipeline: run(xmlPath)
 
-PipelineExecutor → Job.getExecutionLevels()
-PipelineExecutor → Stage execution
+Pipeline ->> Parser: parse(xml)
+Parser ->> Parser: validate XSD
+Parser -->> Pipeline: Job object
 
-Stage → Task execution
+Pipeline ->> Validator: validate(job)
+Pipeline ->> Normalizer: normalize(job)
+
+Pipeline ->> Executor: execute(job)
+
+Executor ->> Job: getExecutionLevels()
+
+loop For each level
+    Executor ->> Stage: executeStage()
+
+    loop For each task
+        Stage ->> Task: execute()
+        Task ->> Task: resolve ActionExecutor
+        Task ->> Task: process via ExecutionContext
+    end
+end
+
+Executor -->> Pipeline: execution complete
+Pipeline -->> Main: done
+Main -->> CLI: exit
+
 ````
 
 ---
@@ -520,7 +543,6 @@ data-pipeline-framework/
 ├── ui/
 │   └── index.html
 │
-├── images/
 ├── pom.xml
 └── README.md
 
@@ -554,8 +576,11 @@ Covered scenarios:
 
 ## How to Run
 ```bash
-mmvn clean install
-java -cp target/classes org.example.datapipeline.Main src/main/resources/pipeline_config/pipeline_instance.xml
+mvn clean install
+
+java -cp target/classes \
+org.example.datapipeline.Main \
+src/main/resources/pipeline_config/pipeline_etl.xml
 ```
 
 ---
