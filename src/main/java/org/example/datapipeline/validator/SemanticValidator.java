@@ -112,7 +112,50 @@ public class SemanticValidator {
                             "Task in stage '" + stage.getId() + "' missing output"
                     );
                 }
+                validateMethodParams(task, stage.getId());
             });
+        }
+    }
+
+    private static void validateMethodParams(org.example.datapipeline.config.Task task, String stageId) {
+        org.example.datapipeline.config.action.Action action = task.getAction();
+        if (action == null || action.getType() == null) return;
+        
+        org.example.datapipeline.config.action.Method method = action.getMethod();
+        if (method == null || method.getName() == null) return;
+        
+        java.util.Map<String, String> params = method.getParamMap();
+        String actionType = action.getType().toLowerCase();
+        String methodName = method.getName().toLowerCase();
+        
+        if ("transform".equals(actionType)) {
+            switch (methodName) {
+                case "derive" -> requireParams(params, stageId, methodName, "new_column", "formula");
+                case "drop_nulls" -> requireParams(params, stageId, methodName, "columns");
+                case "fill_nulls" -> requireParams(params, stageId, methodName, "column", "value");
+                case "sort" -> requireParams(params, stageId, methodName, "column", "order");
+                case "limit" -> requireParams(params, stageId, methodName, "count");
+                case "normalize" -> requireParams(params, stageId, methodName, "column");
+                case "scale" -> requireParams(params, stageId, methodName, "column");
+                case "filter" -> requireParams(params, stageId, methodName, "column", "operator", "value");
+                case "map" -> requireParams(params, stageId, methodName, "column", "operation", "value");
+                case "select" -> requireParams(params, stageId, methodName, "columns");
+                case "aggregate" -> requireParams(params, stageId, methodName, "group_by", "column", "operation");
+            }
+        } else if ("join".equals(actionType) && "inner".equals(methodName)) {
+            requireParams(params, stageId, methodName, "left_key", "right_key", "right_src");
+        }
+    }
+
+    private static void requireParams(java.util.Map<String, String> params, String stageId, String methodName, String... required) {
+        for (String req : required) {
+            String val = params.get(req);
+            if (val == null || val.isBlank()) {
+                throw new RuntimeException(String.format(
+                        "Task in stage '%s' with method '%s' is missing required parameter: '%s'",
+                        stageId, methodName, req
+                ));
+            }
         }
     }
 

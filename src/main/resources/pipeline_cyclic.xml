@@ -1,0 +1,29 @@
+
+<job id="cyclic_pipeline">
+
+    <stage id="extractA" pre_req="merge">
+        <task>
+            <input src="fileA"/>
+            <action type="ReadCSV"/>
+            <output src="datasetA"/>
+        </task>
+    </stage>
+
+    <stage id="extractB" pre_req="extractA">
+        <task>
+            <input src="fileB"/>
+            <action type="ReadCSV"/>
+            <output src="datasetB"/>
+        </task>
+    </stage>
+
+    <stage id="merge" pre_req="extractB">
+        <task>
+            <input src="datasetA"/>
+            <action type="Merge"/>
+            <output src="merged"/>
+        </task>
+    </stage>
+
+</job>
+

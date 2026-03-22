@@ -1,40 +1,16 @@
 package org.example.datapipeline.executor.action.transform;
 
-import org.example.datapipeline.executor.context.ExecutionContext;
+import org.example.datapipeline.config.action.Method;
 import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
-/**
- * Projects a subset of columns from a streaming dataset.
- *
- * Consumes input rows lazily and emits only the specified columns
- * in the order defined by the configuration. The header is transformed
- * to include only the selected columns.
- *
- * The method expects parameters for:
- * - columns : comma-separated list of column names to retain
- *
- * During initialization, the header row is used to resolve column indices.
- * If any requested column is not found, execution fails immediately.
- *
- * Each subsequent row is transformed by extracting values corresponding
- * to the selected columns. Missing values are replaced with empty strings.
- *
- * The transformation is performed in a streaming manner with minimal buffering,
- * ensuring efficient processing of large datasets without loading the entire
- * input into memory.
- *
- * The result is returned as an iterator that yields:
- * - a new header containing only selected columns
- * - projected data rows with values in the specified order
- */
-public class SelectTransform implements TransformMethod {
+public class SelectStrategy implements TransformStrategy {
 
     @Override
-    public DataIterator apply(DataIterator input, ExecutionContext ctx) {
+    public DataIterator apply(DataIterator input, Method method) {
 
-        Map<String, String> params = ctx.getMethod().getParamMap();
+        Map<String, String> params = method.getParamMap();
 
         String columnsParam = params.get("columns");
         if (columnsParam == null) {
@@ -77,7 +53,6 @@ public class SelectTransform implements TransformMethod {
             @Override
             public String[] next() {
 
-                // HEADER
                 if (!headerProcessed) {
                     if (!input.hasNext()) {
                         throw new RuntimeException("Empty input data");
