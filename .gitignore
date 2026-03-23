@@ -57,3 +57,5 @@ Thumbs.db
 #src/main/resources/pipeline_*.xml
 
 src/main/resources/output/
+
+logs
