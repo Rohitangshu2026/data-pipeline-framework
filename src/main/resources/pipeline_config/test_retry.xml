@@ -1,0 +1,16 @@
+<job id="test_retry">
+    <stage id="extract">
+        <on_error handling_strategy="retry" retry_count="1" />
+        <task>
+            <input>
+                <csv src="non_existent.csv"/>
+            </input>
+            <action type="ReadCSV">
+                <method name="read"/>
+            </action>
+            <output>
+                <csv src="raw_data"/>
+            </output>
+        </task>
+    </stage>
+</job>

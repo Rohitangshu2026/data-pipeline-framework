@@ -49,40 +49,65 @@ public class PipelineExecutor {
     }
 
     private static void executeStage(Stage stage) {
-    //        System.out.println("\nStage: " + stage.getId());
+        int maxRetries = 1; // user requested 1 retry
+        int currentAttempt = 0;
+        
+        org.example.datapipeline.config.OnError onError = stage.getOnError();
+        String strategy = (onError != null && onError.getHandlingStrategy() != null) 
+                ? onError.getHandlingStrategy() : "abort";
 
-        for (Task task : stage.getTasks()) {
+        while (true) {
+            try {
+                for (Task task : stage.getTasks()) {
 
+                    String log = String.format(
+                            "\n[%s] TASK START\nInput: %s\nAction: %s\nMethod: %s\nOutput: %s\n",
+                            stage.getId(),
+                            task.getInput().getSrc(),
+                            task.getAction().getType(),
+                            task.getAction().getMethod().getName(),
+                            task.getOutput().getSrc()
+                    );
+                    System.out.println(log);
 
-            String log = String.format(
-                    "\n[%s] TASK START\nInput: %s\nAction: %s\nMethod: %s\nOutput: %s\n",
-                    stage.getId(),
-                    task.getInput().getSrc(),
-                    task.getAction().getType(),
-                    task.getAction().getMethod().getName(),
-                    task.getOutput().getSrc()
-            );
-            System.out.println(log);
+                    ExecutionContext ctx = new ExecutionContext(
+                            task.getInput(),
+                            task.getOutput(),
+                            task.getAction().getMethod()
+                    );
 
-            ExecutionContext ctx = new ExecutionContext(
-                    task.getInput(),
-                    task.getOutput(),
-                    task.getAction().getMethod()
-            );
+                    ctx.getMetadata().put("stageId", stage.getId());
 
-            ctx.getMetadata().put("stageId", stage.getId());
+                    DataIterator it = task.getInput().streamData();
+                    ctx.setIterator(it);
 
-            DataIterator it = task.getInput().streamData();
-            ctx.setIterator(it);
+                    ActionExecutor executor = ActionRegistry.getAction(
+                            task.getAction().getType()
+                    );
+                    executor.execute(ctx);
 
-            ActionExecutor executor = ActionRegistry.getAction(
-                    task.getAction().getType()
-            );
-            executor.execute(ctx);
+                    DataIterator result = ctx.getIterator();
+                    task.getOutput().writeData(result);
 
-            DataIterator result = ctx.getIterator();
-            task.getOutput().writeData(result);
-
+                }
+                break; // If successful, exit the retry loop
+            } catch (Exception e) {
+                if ("proceed".equals(strategy)) {
+                    System.out.println("stage " + stage.getId() + " skipped");
+                    break;
+                } else if ("retry".equals(strategy)) {
+                    currentAttempt++;
+                    if (currentAttempt <= maxRetries) {
+                        System.out.println("retry [" + currentAttempt + "]");
+                    } else {
+                        System.out.println("aborted due to error at stage " + stage.getId());
+                        throw new RuntimeException("aborted due to error at stage " + stage.getId(), e);
+                    }
+                } else {
+                    System.out.println("aborted due to error at stage " + stage.getId());
+                    throw new RuntimeException("aborted due to error at stage " + stage.getId(), e);
+                }
+            }
         }
     }
 }

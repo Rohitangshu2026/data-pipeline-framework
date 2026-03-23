@@ -1,0 +1,30 @@
+<job id="test_proceed">
+    <stage id="extract">
+        <on_error handling_strategy="proceed" />
+        <task>
+            <input>
+                <csv src="non_existent.csv"/>
+            </input>
+            <action type="ReadCSV">
+                <method name="read"/>
+            </action>
+            <output>
+                <csv src="raw_data"/>
+            </output>
+        </task>
+    </stage>
+    
+    <stage id="transform_stage" pre_req="extract">
+        <task>
+            <input>
+                <csv src="raw_data"/>
+            </input>
+            <action type="Transform">
+                <method name="transform"/>
+            </action>
+            <output>
+                <csv src="clean_data"/>
+            </output>
+        </task>
+    </stage>
+</job>
