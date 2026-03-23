@@ -6,7 +6,9 @@ import org.example.datapipeline.config.Task;
 import org.example.datapipeline.executor.context.ExecutionContext;
 import org.example.datapipeline.executor.action.ActionExecutor;
 import org.example.datapipeline.executor.action.ActionRegistry;
-import org.example.datapipeline.executor.iterator.DataIterator;
+import org.example.datapipeline.executor.metrics.TaskMetrics;
+import org.example.datapipeline.executor.metrics.CountingIterator;
+import java.util.logging.Logger;
 
 import java.util.List;
 
@@ -30,25 +32,25 @@ import java.util.List;
  */
 public class PipelineExecutor {
 
+    private static final Logger logger = Logger.getLogger(PipelineExecutor.class.getName());
     public static void execute(Job job) {
 
         List<List<Stage>> levels = job.getExecutionLevels();
 
-        System.out.println("\n----- PIPELINE EXECUTION START -----");
+        logger.info("PIPELINE_EXECUTION_START");
 
         for (int level = 0; level < levels.size(); level++) {
 
-            System.out.println("\nExecuting Stage Level: " + level);
+            logger.info("STAGE_LEVEL_START level=" + level);
 
             levels.get(level)
                     .parallelStream()
                     .forEach(PipelineExecutor::executeStage);
         }
-
-        System.out.println("\n----- PIPELINE EXECUTION COMPLETE -----");
     }
 
     private static void executeStage(Stage stage) {
+        long stageStart = System.currentTimeMillis();
         int maxRetries = 1; // user requested 1 retry
         int currentAttempt = 0;
         
@@ -60,15 +62,15 @@ public class PipelineExecutor {
             try {
                 for (Task task : stage.getTasks()) {
 
-                    String log = String.format(
-                            "\n[%s] TASK START\nInput: %s\nAction: %s\nMethod: %s\nOutput: %s\n",
+                    String methodName = task.getAction().getMethod().getName();
+                    logger.info(String.format(
+                            "TASK_START stage=%s input=%s action=%s method=%s output=%s",
                             stage.getId(),
                             task.getInput().getSrc(),
                             task.getAction().getType(),
-                            task.getAction().getMethod().getName(),
+                            methodName,
                             task.getOutput().getSrc()
-                    );
-                    System.out.println(log);
+                    ));
 
                     ExecutionContext ctx = new ExecutionContext(
                             task.getInput(),
@@ -78,36 +80,80 @@ public class PipelineExecutor {
 
                     ctx.getMetadata().put("stageId", stage.getId());
 
-                    DataIterator it = task.getInput().streamData();
-                    ctx.setIterator(it);
+                    TaskMetrics metrics = new TaskMetrics();
+                    metrics.start();
 
-                    ActionExecutor executor = ActionRegistry.getAction(
-                            task.getAction().getType()
-                    );
-                    executor.execute(ctx);
+                    CountingIterator inputIt = null;
+                    CountingIterator outputIt = null;
 
-                    DataIterator result = ctx.getIterator();
-                    task.getOutput().writeData(result);
+                    try {
+                        // Wrap input
+                        inputIt = new CountingIterator(task.getInput().streamData());
+                        ctx.setIterator(inputIt);
+
+                        ActionExecutor executor = ActionRegistry.getAction(
+                                task.getAction().getType()
+                        );
+
+                        executor.execute(ctx);
+
+                        // Wrap output
+                        outputIt = new CountingIterator(ctx.getIterator());
+                        task.getOutput().writeData(outputIt);
+
+                        metrics.setRowsIn(inputIt.getCount());
+                        metrics.setRowsOut(outputIt.getCount());
+                        metrics.setSuccess(true);
+
+                    } catch (Exception e) {
+
+                        metrics.setSuccess(false);
+                        metrics.setError(e.getMessage());
+                        throw e;
+
+                    } finally {
+
+                        metrics.end();
+
+                        logger.info(String.format(
+                                "TASK_METRICS stage=%s method=%s duration=%d rowsIn=%d rowsOut=%d success=%s error=%s",
+                                stage.getId(),
+                                methodName,
+                                metrics.getDuration(),
+                                inputIt != null ? inputIt.getCount() : 0,
+                                outputIt != null ? outputIt.getCount() : 0,
+                                metrics.isSuccess(),
+                                metrics.isSuccess() ? "none" : metrics.getError()
+                        ));
+                    }
 
                 }
                 break; // If successful, exit the retry loop
             } catch (Exception e) {
                 if ("proceed".equals(strategy)) {
-                    System.out.println("stage " + stage.getId() + " skipped");
+                    logger.warning("STAGE_SKIPPED stage=" + stage.getId());
                     break;
                 } else if ("retry".equals(strategy)) {
                     currentAttempt++;
                     if (currentAttempt <= maxRetries) {
-                        System.out.println("retry [" + currentAttempt + "]");
+                        logger.warning("RETRY stage=" + stage.getId() + " attempt=" + currentAttempt);
                     } else {
-                        System.out.println("aborted due to error at stage " + stage.getId());
+                        logger.severe("STAGE_ABORT stage=" + stage.getId() + " error=" + e.getMessage());
                         throw new RuntimeException("aborted due to error at stage " + stage.getId(), e);
                     }
                 } else {
-                    System.out.println("aborted due to error at stage " + stage.getId());
+                    logger.severe("STAGE_ABORT stage=" + stage.getId() + " error=" + e.getMessage());
                     throw new RuntimeException("aborted due to error at stage " + stage.getId(), e);
                 }
             }
         }
+        long stageEnd = System.currentTimeMillis();
+
+        logger.info(String.format(
+                "STAGE_METRICS stage=%s duration=%d retries=%d",
+                stage.getId(),
+                (stageEnd - stageStart),
+                currentAttempt
+        ));
     }
 }

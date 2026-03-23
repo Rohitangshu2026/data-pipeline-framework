@@ -1,9 +1,9 @@
 <job id="test_retry">
     <stage id="extract">
-        <on_error handling_strategy="retry" retry_count="1" />
+        <on_error handling_strategy="retry" retry_count="3" />
         <task>
             <input>
-                <csv src="non_existent.csv"/>
+                <csv src="src/main/resources/input/employees.csv"/>
             </input>
             <action type="ReadCSV">
                 <method name="read"/>

@@ -3,6 +3,7 @@ package org.example.datapipeline.config.output;
 import jakarta.xml.bind.annotation.*;
 import org.example.datapipeline.executor.iterator.DataIterator;
 
+import java.util.logging.Logger;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.File;
@@ -30,6 +31,8 @@ import java.io.File;
 @XmlAccessorType(XmlAccessType.FIELD)
 public class Output{
 
+    private static final Logger logger = Logger.getLogger(Output.class.getName());
+
     @XmlElement(name = "csv")
     private CsvOutput csv;
 
@@ -54,7 +57,7 @@ public class Output{
         try {
             File file = new File(csv.getSrc());
             if (file.getParentFile() != null) {
-                file.getParentFile().mkdirs();   // ✅ safe directory creation
+                file.getParentFile().mkdirs();
             }
 
             try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
@@ -74,12 +77,12 @@ public class Output{
                     count++;
                 }
 
-                System.out.println("Rows written: " + count);
+                logger.info("ROWS_WRITTEN count=" + count + " file=" + csv.getSrc());
 
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.severe(String.format("CSV_WRITE_FAILED file=%s error=%s", csv.getSrc(), e.getMessage()));
             throw new RuntimeException("Failed to write CSV: " + csv.getSrc(), e);
         }
     }

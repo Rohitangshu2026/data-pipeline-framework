@@ -61,10 +61,6 @@ public class Pipeline {
         for(List<Stage> level : levels) {
             System.out.println("Level " + levels.indexOf(level) + ": " + level.stream().map(Stage::getId).toList());
         }
-
-        System.out.println("Dummy Execution\n");
         PipelineExecutor.execute(job);
     }
-
-
 }
