@@ -9,21 +9,23 @@
                 <method name="read"/>
             </action>
             <output>
-                <csv src="raw_data"/>
+                <csv src="raw_data.csv"/>
             </output>
         </task>
     </stage>
-    
+
     <stage id="transform_stage" pre_req="extract">
         <task>
             <input>
-                <csv src="raw_data"/>
+                <csv src="src/main/resources/input/employees.csv"/>
             </input>
-            <action type="Transform">
-                <method name="transform"/>
+            <action type="transform">
+                <method name="limit">
+                     <param name="count" value="5"/>
+                </method>
             </action>
             <output>
-                <csv src="clean_data"/>
+                <csv src="src/main/resources/output/clean_data.csv"/>
             </output>
         </task>
     </stage>
