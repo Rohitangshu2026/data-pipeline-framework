@@ -4,6 +4,84 @@ import java.util.*;
 import org.example.datapipeline.config.action.Method;
 import org.example.datapipeline.executor.iterator.DataIterator;
 
+/**
+ * AggregateStrategy implements a grouped aggregation operator for the data pipeline.
+ *
+ * This class performs aggregations such as SUM, AVG, MIN, MAX, and COUNT over
+ * a dataset grouped by a specified column. It follows a chunked MapReduce-style
+ * execution model to balance memory efficiency and scalability.
+ *
+ * Execution Model:
+ *
+ * 1. Map Phase (per chunk)
+ *    - Input data is processed in fixed-size chunks to avoid loading the entire dataset into memory.
+ *    - Each chunk is grouped by the specified "group_by" column.
+ *    - For each group, an AggregateState object accumulates:
+ *        • sum
+ *        • count
+ *        • min
+ *        • max
+ *
+ * 2. Local Aggregation
+ *    - Within each chunk, rows are aggregated into a local map:
+ *        Map<groupKey, AggregateState>
+ *
+ * 3. Reduce Phase (global merge)
+ *    - Local maps from each chunk are merged into a global aggregation map.
+ *    - Aggregation states are combined using a mergeable structure:
+ *        • sums are added
+ *        • counts are added
+ *        • min/max are updated
+ *
+ * 4. Final Output
+ *    - Results are exposed as a streaming DataIterator.
+ *    - Each row contains:
+ *        • group key
+ *        • computed aggregation value
+ *    - Header format:
+ *        [group_by, operation_column]
+ *
+ * Key Components:
+ *
+ * - apply:
+ *   Entry point that validates parameters, identifies column indices,
+ *   and orchestrates chunked aggregation and final output.
+ *
+ * - aggregateChunk:
+ *   Performs the map phase on a single chunk of rows, producing a local aggregation map.
+ *
+ * - mergeMaps:
+ *   Combines local aggregation maps into the global result using mergeable states.
+ *
+ * - AggregateState:
+ *   A compact, mergeable structure that tracks sum, count, min, and max.
+ *   Supports efficient combination across chunks and final computation.
+ *
+ * - tryParse:
+ *   Safely parses numeric values, ignoring invalid or non-numeric inputs.
+ *
+ * Supported Operations:
+ * - sum
+ * - avg
+ * - min
+ * - max
+ * - count
+ *
+ * Design Characteristics:
+ * - Memory efficient via chunk-based processing
+ * - Inspired by MapReduce execution (map → combine → reduce)
+ * - Streaming output via iterator abstraction
+ * - Robust to malformed numeric data (ignored during aggregation)
+ *
+ * Assumptions and Limitations:
+ * - Input rows are String arrays representing CSV-like data.
+ * - Aggregations operate only on numeric columns.
+ * - Non-numeric values are skipped silently.
+ * - Group keys are treated as strings and compared lexicographically.
+ *
+ * This implementation provides a scalable and extensible foundation for
+ * aggregation operations in a data pipeline engine.
+ */
 public class AggregateStrategy implements TransformStrategy {
 
     private static final int CHUNK_SIZE = 1000;
