@@ -43,8 +43,9 @@ public class LoggingConfig {
                 }
 
                 return String.format(
-                        "%s[%s] %s%s%n",
+                        "%s[%tT][%s] %s%s%n",
                         color,
+                        new java.util.Date(record.getMillis()),
                         record.getLevel(),
                         record.getMessage(),
                         RESET
