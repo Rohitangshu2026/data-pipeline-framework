@@ -1,0 +1,10 @@
+order_id,user_id,amount,category
+1,1,100,electronics
+2,1,200,fashion
+3,2,300,grocery
+4,2,400,books
+5,3,500,electronics
+6,3,600,fashion
+7,4,700,books
+8,5,800,grocery
+9,5,900,electronics

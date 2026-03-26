@@ -176,16 +176,21 @@ public class AggregateStrategy implements TransformStrategy {
         Map<String, AggregateState> groups = new HashMap<>();
 
         for (String[] row : chunk) {
-            if (groupIndex < row.length && valueIndex < row.length) {
+            String key = (groupIndex < row.length) ? row[groupIndex] : "UNKNOWN";
 
-                String key = row[groupIndex];
-                Double val = tryParse(row[valueIndex]);
+            String valStr = (valueIndex < row.length) ? row[valueIndex] : null;
+            Double val = tryParse(valStr);
 
-                if (val != null) {
-                    groups.computeIfAbsent(key, k -> new AggregateState())
-                            .add(val);
-                }
+            if (key == null || key.trim().isEmpty()) {
+                key = "UNKNOWN";
             }
+            AggregateState state = groups.computeIfAbsent(key, k -> new AggregateState());
+            state.incrementRow();   // ALWAYS count row
+
+            if (val != null) {
+                state.add(val);
+            }
+
         }
 
         return groups;
@@ -213,21 +218,28 @@ public class AggregateStrategy implements TransformStrategy {
     // FIXED + MERGEABLE STATE
     static class AggregateState {
         double sum = 0.0;
-        int count = 0;
+        int rowCount = 0;      // total rows
+        int valueCount = 0;    // numeric values only
         double min = Double.MAX_VALUE;
         double max = Double.NEGATIVE_INFINITY;
 
-        void add(double val) {
-            sum += val;
-            count++;
-            min = Math.min(min, val);
-            max = Math.max(max, val);
+        void add(Double val) {
+            if (val != null) {
+                sum += val;
+                min = Math.min(min, val);
+                max = Math.max(max, val);
+                valueCount++;
+            }
         }
 
-        // merge support (MapReduce core)
+        void incrementRow() {
+            rowCount++;
+        }
+
         void merge(AggregateState other) {
             this.sum += other.sum;
-            this.count += other.count;
+            this.rowCount += other.rowCount;
+            this.valueCount += other.valueCount;
             this.min = Math.min(this.min, other.min);
             this.max = Math.max(this.max, other.max);
         }
@@ -235,10 +247,10 @@ public class AggregateStrategy implements TransformStrategy {
         double compute(String operation) {
             return switch (operation.toLowerCase()) {
                 case "sum" -> sum;
-                case "avg" -> count == 0 ? 0.0 : sum / count;
-                case "min" -> count == 0 ? 0.0 : min;
-                case "max" -> count == 0 ? 0.0 : max;
-                case "count" -> count;
+                case "avg" -> valueCount == 0 ? 0.0 : sum / valueCount;
+                case "min" -> valueCount == 0 ? 0.0 : min;
+                case "max" -> valueCount == 0 ? 0.0 : max;
+                case "count" -> rowCount;   // 👈 correct semantics
                 default -> throw new RuntimeException("Invalid aggregation: " + operation);
             };
         }

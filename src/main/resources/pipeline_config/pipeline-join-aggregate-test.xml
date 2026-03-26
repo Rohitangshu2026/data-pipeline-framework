@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<job id="full-feature-pipeline">
+
+    <!-- ================= STAGE 1 ================= -->
+    <!-- JOIN -->
+    <stage id="join_stage">
+        <task>
+            <input>
+                <csv src="src/main/resources/input/users.csv"/>
+            </input>
+
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key" value="user_id"/>
+                    <param name="right_key" value="user_id"/>
+                    <param name="right_src" value="src/main/resources/input/orders.csv"/>
+                </method>
+            </action>
+
+            <output>
+                <csv src="src/main/resources/output/join_output.csv"/>
+            </output>
+        </task>
+    </stage>
+
+
+    <!-- ================= STAGE 2 ================= -->
+    <!-- DATA CLEANING -->
+    <stage id="clean_stage" pre_req="join_stage">
+        <task>
+            <input>
+                <csv src="src/main/resources/output/join_output.csv"/>
+            </input>
+
+            <action type="transform">
+                <method name="drop_nulls">
+                    <param name="columns" value="country,right_amount"/>
+                </method>
+            </action>
+
+            <output>
+                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            </output>
+        </task>
+    </stage>
+
+
+    <!-- ================= STAGE 3 ================= -->
+    <!-- AGGREGATIONS -->
+    <stage id="aggregation_stage" pre_req="clean_stage">
+
+        <task>
+            <input>
+                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            </input>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="country"/>
+                    <param name="operation" value="sum"/>
+                    <param name="column" value="right_amount"/>
+                </method>
+            </action>
+            <output>
+                <csv src="src/main/resources/output/country_sum.csv"/>
+            </output>
+        </task>
+
+        <task>
+            <input>
+                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            </input>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="country"/>
+                    <param name="operation" value="avg"/>
+                    <param name="column" value="right_amount"/>
+                </method>
+            </action>
+            <output>
+                <csv src="src/main/resources/output/country_avg.csv"/>
+            </output>
+        </task>
+
+        <task>
+            <input>
+                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            </input>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="country"/>
+                    <param name="operation" value="min"/>
+                    <param name="column" value="right_amount"/>
+                </method>
+            </action>
+            <output>
+                <csv src="src/main/resources/output/country_min.csv"/>
+            </output>
+        </task>
+
+        <task>
+            <input>
+                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            </input>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="country"/>
+                    <param name="operation" value="max"/>
+                    <param name="column" value="right_amount"/>
+                </method>
+            </action>
+            <output>
+                <csv src="src/main/resources/output/country_max.csv"/>
+            </output>
+        </task>
+
+        <task>
+            <input>
+                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            </input>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="right_category"/>
+                    <param name="operation" value="count"/>
+                    <param name="column" value="right_amount"/>
+                </method>
+            </action>
+            <output>
+                <csv src="src/main/resources/output/category_count.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+
+    <!-- ================= STAGE 4 ================= -->
+    <!-- GLOBAL AGG -->
+    <stage id="meta_aggregation_stage" pre_req="aggregation_stage">
+        <task>
+            <input>
+                <csv src="src/main/resources/output/country_sum.csv"/>
+            </input>
+
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="country"/>
+                    <param name="operation" value="max"/>
+                    <param name="column" value="sum_right_amount"/>
+                </method>
+            </action>
+
+            <output>
+                <csv src="src/main/resources/output/max_country_sum.csv"/>
+            </output>
+        </task>
+    </stage>
+
+</job>
