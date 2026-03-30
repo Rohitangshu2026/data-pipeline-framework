@@ -2,12 +2,17 @@
 
 <job id="data-transform-pipeline">
 
+    <!-- Global shared resources -->
+    <datasources>
+        <datasource id="employees_db" type="csv">
+            <param name="src" value="src/main/resources/input/employees.csv"/>
+        </datasource>
+    </datasources>
+
     <!-- ================= STAGE 1 ================= -->
     <stage id="high_salary">
         <task>
-            <input>
-                <csv src="src/main/resources/input/employees.csv"/>
-            </input>
+            <input ref="employees_db"/> <!-- Using global datasource -->
             <action type="transform">
                 <method name="filter">
                     <param name="column" value="salary"/>
@@ -15,8 +20,8 @@
                     <param name="value" value="60000"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/high_salary.csv"/>
+            <output type="csv"> <!-- Using inline config -->
+                <param name="src" value="src/main/resources/output/high_salary.csv"/>
             </output>
         </task>
     </stage>
@@ -24,8 +29,8 @@
     <!-- ================= STAGE 2 ================= -->
     <stage id="very_high_salary" pre_req="high_salary">
         <task>
-            <input>
-                <csv src="src/main/resources/output/high_salary.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/high_salary.csv"/>
             </input>
             <action type="transform">
                 <method name="filter">
@@ -34,8 +39,8 @@
                     <param name="value" value="80000"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/very_high_salary.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/very_high_salary.csv"/>
             </output>
         </task>
     </stage>
@@ -43,29 +48,26 @@
     <!-- ================= STAGE 3 ================= -->
     <stage id="select_columns" pre_req="very_high_salary">
         <task>
-            <input>
-                <csv src="src/main/resources/output/very_high_salary.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/very_high_salary.csv"/>
             </input>
             <action type="transform">
                 <method name="select">
                     <param name="columns" value="name,dept_id,salary"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/selected.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/selected.csv"/>
             </output>
         </task>
     </stage>
 
     <!-- ================= STAGE 4 ================= -->
-    <!-- 🔥 JOIN WITH DEPARTMENTS -->
     <stage id="join_departments" pre_req="select_columns">
-
         <task>
-            <input>
-                <csv src="src/main/resources/output/selected.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/selected.csv"/>
             </input>
-
             <action type="join">
                 <method name="inner">
                     <param name="left_key" value="dept_id"/>
@@ -73,19 +75,17 @@
                     <param name="right_src" value="src/main/resources/input/departments.csv"/>
                 </method>
             </action>
-
-            <output>
-                <csv src="src/main/resources/output/joined_with_departments.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/joined_with_departments.csv"/>
             </output>
         </task>
-
     </stage>
 
     <!-- ================= STAGE 5 ================= -->
     <stage id="salary_hike" pre_req="join_departments">
         <task>
-            <input>
-                <csv src="src/main/resources/output/joined_with_departments.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/joined_with_departments.csv"/>
             </input>
             <action type="transform">
                 <method name="map">
@@ -94,8 +94,8 @@
                     <param name="value" value="1.1"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/salary_hike.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/salary_hike.csv"/>
             </output>
         </task>
     </stage>
@@ -103,8 +103,8 @@
     <!-- ================= STAGE 6 ================= -->
     <stage id="bonus_added" pre_req="salary_hike">
         <task>
-            <input>
-                <csv src="src/main/resources/output/salary_hike.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/salary_hike.csv"/>
             </input>
             <action type="transform">
                 <method name="map">
@@ -113,19 +113,17 @@
                     <param name="value" value="5000"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/bonus_added.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/bonus_added.csv"/>
             </output>
         </task>
     </stage>
 
     <!-- ================= STAGE 7 ================= -->
-    <!-- Now we can aggregate using enriched data -->
-
     <stage id="avg_salary_by_dept" pre_req="bonus_added">
         <task>
-            <input>
-                <csv src="src/main/resources/output/bonus_added.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/bonus_added.csv"/>
             </input>
             <action type="transform">
                 <method name="aggregate">
@@ -134,16 +132,16 @@
                     <param name="operation" value="avg"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/avg_salary.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/avg_salary.csv"/>
             </output>
         </task>
     </stage>
 
     <stage id="max_salary_by_dept" pre_req="bonus_added">
         <task>
-            <input>
-                <csv src="src/main/resources/output/bonus_added.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/bonus_added.csv"/>
             </input>
             <action type="transform">
                 <method name="aggregate">
@@ -152,16 +150,16 @@
                     <param name="operation" value="max"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/max_salary.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/max_salary.csv"/>
             </output>
         </task>
     </stage>
 
     <stage id="count_by_dept" pre_req="bonus_added">
         <task>
-            <input>
-                <csv src="src/main/resources/output/bonus_added.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/bonus_added.csv"/>
             </input>
             <action type="transform">
                 <method name="aggregate">
@@ -170,8 +168,8 @@
                     <param name="operation" value="count"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/count_by_dept.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/count_by_dept.csv"/>
             </output>
         </task>
     </stage>

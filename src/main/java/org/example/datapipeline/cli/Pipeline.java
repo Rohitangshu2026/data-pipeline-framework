@@ -34,6 +34,7 @@ public class Pipeline {
         JAXBPipelineParser parser = new JAXBPipelineParser();
 
         Job job = parser.parse(xmlPath);
+        job.resolveDatasources();
         SemanticValidator.validate(job);
 
         ConfigNormalizer.normalize(job);

@@ -2,93 +2,52 @@ package org.example.datapipeline.config.input;
 
 import org.example.datapipeline.executor.iterator.DataIterator;
 import org.example.datapipeline.executor.iterator.CsvDataIterator;
+import org.example.datapipeline.config.action.Param;
+import org.example.datapipeline.config.Datasource;
 
 import jakarta.xml.bind.annotation.*;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
-/**
- * Represents the input source for a pipeline task.
- *
- * Supports multiple input types such as CSV files and databases,
- * as defined in the pipeline configuration. Provides utilities to
- * identify the input type, retrieve the source location, and access
- * data either in-memory or as a stream.
- *
- * For CSV inputs:
- * - Data can be fully loaded into memory as a list of rows
- * - Data can be consumed lazily using a streaming iterator
- *
- * Streaming mode enables efficient processing of large datasets
- * without loading the entire file into memory, making it suitable
- * for scalable pipeline execution.
- *
- * Database input support is defined but not yet implemented.
- *
- * This class acts as the entry point for data ingestion within the framework.
- */
 @XmlAccessorType(XmlAccessType.FIELD)
 public class Input {
 
-    @XmlElement(name = "csv")
-    private CsvInput csv;
+    @XmlAttribute
+    private String type;
 
-    @XmlElement(name = "db")
-    private DbInput db;
+    @XmlAttribute
+    private String ref;
 
-    public String getSrc(){
-        if (csv != null) return csv.getSrc();
-        if (db != null) return db.getConnection(); // or query depending on use
-        return null;
-    }
+    @XmlElement(name = "param")
+    private List<Param> params = new ArrayList<>();
 
-    public boolean isCsv(){
-        return csv != null;
-    }
+    private transient Map<String, String> resolvedParams = new HashMap<>();
 
-    public boolean isDb(){
-        return db != null;
-    }
-
-    public List<String[]> readData() {
-
-        if (isCsv()) {
-            return readCsv();
+    public void resolve(Map<String, Datasource> globals) {
+        if (ref != null && globals.containsKey(ref)) {
+            Datasource ds = globals.get(ref);
+            if (this.type == null) this.type = ds.getType();
+            for (Param p : ds.getParams()) resolvedParams.put(p.getName(), p.getValue());
         }
-
-        if (isDb()) {
-            throw new RuntimeException("DB input not implemented yet");
-        }
-
-        throw new RuntimeException("No valid input source");
+        for (Param p : params) resolvedParams.put(p.getName(), p.getValue());
     }
 
-    private List<String[]> readCsv() {
+    public String getType() { return type; }
+    public String getParam(String name) { return resolvedParams.get(name); }
 
-        List<String[]> data = new ArrayList<>();
-
-        try (BufferedReader reader = new BufferedReader(new FileReader(csv.getSrc()))) {
-
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-                data.add(line.split(","));
-            }
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to read CSV: " + csv.getSrc(), e);
-        }
-
-        return data;
+    public String getSrc() {
+        return getParam("src");
     }
 
     public DataIterator streamData() {
-        if (isCsv()) {
-            return new CsvDataIterator(csv.getSrc());
+        if ("csv".equals(type)) {
+            return new CsvDataIterator(getSrc());
         }
-        throw new RuntimeException("Streaming not supported for this input type");
+        throw new RuntimeException("Streaming not supported for this input type: " + type);
     }
 }
