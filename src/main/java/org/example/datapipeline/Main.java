@@ -39,7 +39,7 @@ public class Main {
             logger.info("PIPELINE_START file=" + xmlPath);
             Pipeline.run(xmlPath);
             logger.info("PIPELINE_EXECUTION_END");
-
+            
         } catch (RuntimeException e) {
 
             logger.severe("PIPELINE_ERROR " + e.getMessage());

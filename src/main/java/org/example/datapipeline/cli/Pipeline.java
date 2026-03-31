@@ -42,12 +42,12 @@ public class Pipeline {
         System.out.println("Stages: " + job.getStages().size());
 
         System.out.println("\n----- PIPELINE STAGES -----");
-        for(Stage stage : job.getStages()) {
+        for (Stage stage : job.getStages()) {
 
             System.out.println("\nStage: " + stage.getId());
             System.out.println("Dependencies: " + stage.getDependencies());
 
-            for(Task task : stage.getTasks()) {
+            for (Task task : stage.getTasks()) {
                 System.out.println("  Task:");
                 System.out.println("    Input: " + task.getInput().getSrc());
                 System.out.println("    Action: " + task.getAction().getType());
@@ -59,7 +59,7 @@ public class Pipeline {
 
         System.out.println("\n---- TOPOLOGICAL LEVEL ORDER ----\n");
 
-        for(List<Stage> level : levels) {
+        for (List<Stage> level : levels) {
             System.out.println("Level " + levels.indexOf(level) + ": " + level.stream().map(Stage::getId).toList());
         }
         PipelineExecutor.execute(job);

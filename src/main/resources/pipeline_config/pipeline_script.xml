@@ -7,8 +7,8 @@
         <task>
 
             <!-- DATA -->
-            <input>
-                <csv src="src/main/resources/input/input.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/input/input.csv"/>
             </input>
 
             <!-- LOGIC -->
@@ -20,8 +20,8 @@
             </action>
 
             <!-- RESULT -->
-            <output>
-                <csv src="src/main/resources/output/output_script.txt"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/output_script.txt"/>
             </output>
 
         </task>
@@ -32,8 +32,8 @@
 
         <task>
 
-            <input>
-                <csv src="src/main/resources/output/output_script.txt"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/output_script.txt"/>
             </input>
 
             <action type="bash">
@@ -42,8 +42,8 @@
                 </method>
             </action>
 
-            <output>
-                <csv src="src/main/resources/output/final_output.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/final_output.csv"/>
             </output>
 
         </task>

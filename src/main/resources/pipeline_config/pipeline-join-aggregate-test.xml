@@ -6,8 +6,8 @@
     <!-- JOIN -->
     <stage id="join_stage">
         <task>
-            <input>
-                <csv src="src/main/resources/input/users.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/input/users.csv"/>
             </input>
 
             <action type="join">
@@ -18,8 +18,8 @@
                 </method>
             </action>
 
-            <output>
-                <csv src="src/main/resources/output/join_output.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/join_output.csv"/>
             </output>
         </task>
     </stage>
@@ -29,8 +29,8 @@
     <!-- DATA CLEANING -->
     <stage id="clean_stage" pre_req="join_stage">
         <task>
-            <input>
-                <csv src="src/main/resources/output/join_output.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/join_output.csv"/>
             </input>
 
             <action type="transform">
@@ -39,8 +39,8 @@
                 </method>
             </action>
 
-            <output>
-                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/cleaned_join_output.csv"/>
             </output>
         </task>
     </stage>
@@ -51,8 +51,8 @@
     <stage id="aggregation_stage" pre_req="clean_stage">
 
         <task>
-            <input>
-                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/cleaned_join_output.csv"/>
             </input>
             <action type="transform">
                 <method name="aggregate">
@@ -61,14 +61,14 @@
                     <param name="column" value="right_amount"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/country_sum.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/country_sum.csv"/>
             </output>
         </task>
 
         <task>
-            <input>
-                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/cleaned_join_output.csv"/>
             </input>
             <action type="transform">
                 <method name="aggregate">
@@ -77,14 +77,14 @@
                     <param name="column" value="right_amount"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/country_avg.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/country_avg.csv"/>
             </output>
         </task>
 
         <task>
-            <input>
-                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/cleaned_join_output.csv"/>
             </input>
             <action type="transform">
                 <method name="aggregate">
@@ -93,14 +93,14 @@
                     <param name="column" value="right_amount"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/country_min.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/country_min.csv"/>
             </output>
         </task>
 
         <task>
-            <input>
-                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/cleaned_join_output.csv"/>
             </input>
             <action type="transform">
                 <method name="aggregate">
@@ -109,14 +109,14 @@
                     <param name="column" value="right_amount"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/country_max.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/country_max.csv"/>
             </output>
         </task>
 
         <task>
-            <input>
-                <csv src="src/main/resources/output/cleaned_join_output.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/cleaned_join_output.csv"/>
             </input>
             <action type="transform">
                 <method name="aggregate">
@@ -125,8 +125,8 @@
                     <param name="column" value="right_amount"/>
                 </method>
             </action>
-            <output>
-                <csv src="src/main/resources/output/category_count.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/category_count.csv"/>
             </output>
         </task>
 
@@ -137,8 +137,8 @@
     <!-- GLOBAL AGG -->
     <stage id="meta_aggregation_stage" pre_req="aggregation_stage">
         <task>
-            <input>
-                <csv src="src/main/resources/output/country_sum.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/country_sum.csv"/>
             </input>
 
             <action type="transform">
@@ -149,8 +149,8 @@
                 </method>
             </action>
 
-            <output>
-                <csv src="src/main/resources/output/max_country_sum.csv"/>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/max_country_sum.csv"/>
             </output>
         </task>
     </stage>

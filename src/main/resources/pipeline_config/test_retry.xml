@@ -2,14 +2,14 @@
     <stage id="extract">
         <on_error handling_strategy="retry" retry_count="3" />
         <task>
-            <input>
-                <csv src="src/main/resources/input/employees.csv"/>
+            <input type="csv">
+                <param name="src" value="src/main/resources/input/employees.csv"/>
             </input>
             <action type="ReadCSV">
                 <method name="read"/>
             </action>
-            <output>
-                <csv src="raw_data"/>
+            <output type="csv">
+                <param name="src" value="raw_data"/>
             </output>
         </task>
     </stage>

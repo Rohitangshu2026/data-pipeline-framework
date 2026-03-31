@@ -4,11 +4,11 @@ import org.example.datapipeline.executor.iterator.DataIterator;
 import org.example.datapipeline.executor.iterator.CsvDataIterator;
 import org.example.datapipeline.config.action.Param;
 import org.example.datapipeline.config.Datasource;
+import org.example.datapipeline.executor.io.DataIORegistry;
 
 import jakarta.xml.bind.annotation.*;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -45,9 +45,6 @@ public class Input {
     }
 
     public DataIterator streamData() {
-        if ("csv".equals(type)) {
-            return new CsvDataIterator(getSrc());
-        }
-        throw new RuntimeException("Streaming not supported for this input type: " + type);
+        return DataIORegistry.getReader(this.type).createIterator(resolvedParams);
     }
 }
