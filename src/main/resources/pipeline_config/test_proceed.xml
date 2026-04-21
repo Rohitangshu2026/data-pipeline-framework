@@ -1,32 +1,42 @@
+<?xml version='1.0' encoding='UTF-8'?>
 <job id="test_proceed">
+    <datasources>
+        <datasource id="ds_1" type="csv">
+            <param name="src" value="non_existent.csv" />
+        </datasource>
+        <datasource id="ds_2" type="csv">
+            <param name="src" value="src/main/resources/input/employees.csv" />
+        </datasource>
+        <datasource id="ds_3" type="csv">
+            <param name="src" value="raw_data.csv" />
+        </datasource>
+        <datasource id="ds_4" type="csv">
+            <param name="src" value="src/main/resources/output/clean_data.csv" />
+        </datasource>
+    </datasources>
     <stage id="extract">
         <on_error handling_strategy="proceed" />
         <task>
-            <input type="csv">
-                <param name="src" value="non_existent.csv"/>
-            </input>
+            <input ref="ds_1">
+                </input>
             <action type="ReadCSV">
-                <method name="read"/>
+                <method name="read" />
             </action>
-            <output type="csv">
-                <param name="src" value="raw_data.csv"/>
-            </output>
+            <output ref="ds_3">
+                </output>
         </task>
     </stage>
-
     <stage id="transform_stage" pre_req="extract">
         <task>
-            <input type="csv">
-                <param name="src" value="src/main/resources/input/employees.csv"/>
-            </input>
+            <input ref="ds_2">
+                </input>
             <action type="transform">
                 <method name="limit">
-                     <param name="count" value="5"/>
+                    <param name="count" value="5" />
                 </method>
             </action>
-            <output type="csv">
-                <param name="src" value="src/main/resources/output/clean_data.csv"/>
-            </output>
+            <output ref="ds_4">
+                </output>
         </task>
     </stage>
 </job>

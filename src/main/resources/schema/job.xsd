@@ -47,7 +47,7 @@
 
     <xs:complexType name="TaskType">
         <xs:sequence>
-            <xs:element name="input" type="InputType" minOccurs="1"/>
+            <xs:element name="input" type="InputType" minOccurs="1" maxOccurs="unbounded"/>
             <xs:element name="action" type="ActionType"/>
             <xs:element name="output" type="OutputType" minOccurs="1"/>
         </xs:sequence>

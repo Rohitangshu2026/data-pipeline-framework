@@ -9,6 +9,7 @@ public class DataIORegistry {
 
     static {
         registerReader(new CsvDataReader());
+        registerReader(new ApiDataReader());
         registerWriter(new CsvDataWriter());
     }
 

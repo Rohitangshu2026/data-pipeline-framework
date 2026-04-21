@@ -97,7 +97,7 @@ public class SemanticValidator {
                 );
             }
             stage.getTasks().forEach(task -> {
-                if (task.getInput() == null || task.getInput().getSrc() == null) {
+                if (task.getInput() == null) {
                     throw new RuntimeException(
                             "Task in stage '" + stage.getId() + "' missing input"
                     );
@@ -107,7 +107,7 @@ public class SemanticValidator {
                             "Task in stage '" + stage.getId() + "' missing action"
                     );
                 }
-                if (task.getOutput() == null || task.getOutput().getSrc() == null) {
+                if (task.getOutput() == null) {
                     throw new RuntimeException(
                             "Task in stage '" + stage.getId() + "' missing output"
                     );
@@ -141,9 +141,12 @@ public class SemanticValidator {
                 case "map" -> requireParams(params, stageId, methodName, "column", "operation", "value");
                 case "select" -> requireParams(params, stageId, methodName, "columns");
                 case "aggregate" -> requireParams(params, stageId, methodName, "group_by", "column", "operation");
+                case "max" -> requireParams(params, stageId, methodName, "column");
             }
         } else if ("join".equals(actionType) && "inner".equals(methodName)) {
-            requireParams(params, stageId, methodName, "left_key", "right_key", "right_src");
+            if (!params.containsKey("left_key") || !params.containsKey("right_key") || (!params.containsKey("right_src") && !params.containsKey("right_ref"))) {
+                throw new RuntimeException("Missing parameters for inner join. Required: left_key, right_key, and (right_src or right_ref)");
+            }
         }
     }
 

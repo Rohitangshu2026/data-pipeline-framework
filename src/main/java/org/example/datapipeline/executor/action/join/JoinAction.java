@@ -11,79 +11,36 @@ import org.example.datapipeline.executor.action.ActionExecutor;
 
 import java.util.*;
 
-/**
- * JoinAction implements an inner join operator for the data pipeline execution engine.
- *
- * This class supports two join strategies:
- *
- * 1. Hash Join (in-memory)
- *    - Used when the right dataset is small enough to fit into memory.
- *    - The right dataset is fully loaded into a hash map keyed by the join column.
- *    - The left dataset is streamed, and matching rows are probed against the hash map.
- *    - Produces output lazily using a streaming iterator.
- *
- * 2. Sort-Merge Join (external, disk-based)
- *    - Used when the right dataset is too large to fit in memory.
- *    - Both left and right datasets are externally sorted on the join key:
- *        • Data is read in chunks
- *        • Each chunk is sorted and written to temporary files
- *        • A k-way merge is performed using a priority queue
- *    - The sorted streams are then merged using a two-pointer technique:
- *        • Matching key groups are collected
- *        • A cross product is performed for matching groups
- *    - This approach avoids out-of-memory issues and supports large datasets.
- *
- * Execution Flow:
- * - The join type is validated (currently only "inner" is supported).
- * - Join keys and right source path are extracted from the execution context.
- * - The size of the right dataset is estimated.
- * - Based on a threshold, the system selects:
- *      • Hash Join if data fits in memory
- *      • Sort-Merge Join otherwise
- *
- * Output:
- * - The result is exposed as a streaming DataIterator.
- * - The header row is constructed by combining:
- *      • All columns from the left dataset
- *      • All non-key columns from the right dataset (prefixed with "right_")
- *
- * Key Components:
- *
- * - executeHashJoin:
- *   Builds an in-memory hash index on the right dataset and streams the left dataset.
- *
- * - executeSortMergeJoin:
- *   Performs external sorting on both datasets and merges them efficiently.
- *
- * - MergeIterator:
- *   Performs k-way merge over multiple sorted runs using a priority queue.
- *
- * - SortMergeIterator:
- *   Implements the merge phase of sort-merge join using a two-pointer approach
- *   with grouping for duplicate keys.
- *
- * - externalSort / externalSortFromIterator:
- *   Handles chunking, sorting, and spilling data to disk for large datasets.
- *
- * - findIndex:
- *   Utility method to locate the index of a join key in a header row.
- *
- * Assumptions and Limitations:
- * - Only inner joins are supported.
- * - Data is assumed to be CSV and already tokenized into String arrays.
- * - Join key comparison is lexicographic (String-based).
- * - Temporary files are written to disk and should be managed/cleaned externally.
- *
- * This implementation mirrors real-world database execution strategies and is designed
- * to balance memory usage and performance across different data sizes.
- */
 public class JoinAction implements ActionExecutor {
 
     private static final Logger logger = Logger.getLogger(JoinAction.class.getName());
 
-    private int estimateSize(String path) {
+    private DataIterator createRightIterator(ExecutionContext ctx) {
+        Map<String, String> params = ctx.getMethod().getParamMap();
+        String rightSrc = params.get("right_src");
+        String rightRef = params.get("right_ref");
+        
+        if (rightRef != null) {
+            @SuppressWarnings("unchecked")
+            Map<String, org.example.datapipeline.config.Datasource> globals =
+                (Map<String, org.example.datapipeline.config.Datasource>) ctx.getMetadata().get("globals");
+            org.example.datapipeline.config.Datasource ds = globals.get(rightRef);
+            Map<String, String> dsParams = new HashMap<>();
+            for (org.example.datapipeline.config.action.Param p : ds.getParams()) {
+                dsParams.put(p.getName(), p.getValue());
+            }
+            return org.example.datapipeline.executor.io.DataIORegistry.getReader(ds.getType()).createIterator(dsParams);
+        } else if (rightSrc != null) {
+            Map<String, String> dsParams = new HashMap<>();
+            dsParams.put("src", rightSrc);
+            return org.example.datapipeline.executor.io.DataIORegistry.getReader("csv").createIterator(dsParams);
+        }
+        throw new RuntimeException("Missing right_src or right_ref parameter for join");
+    }
+
+    private int estimateSize(ExecutionContext ctx) {
         int count = 0;
-        DataIterator it = new CsvDataIterator(path);
+        DataIterator it = createRightIterator(ctx);
         if (it.hasNext()) it.next(); // skip header
 
         while (it.hasNext() && count < 10000) { // cap for speed
@@ -106,29 +63,27 @@ public class JoinAction implements ActionExecutor {
         Map<String, String> params = method.getParamMap();
         String leftKey = params.get("left_key");
         String rightKey = params.get("right_key");
-        String rightSrc = params.get("right_src");
 
-        if (leftKey == null || rightKey == null || rightSrc == null) {
-            throw new RuntimeException("Missing params for join (left_key, right_key, right_src required)");
+        if (leftKey == null || rightKey == null) {
+            throw new RuntimeException("Missing params for join (left_key, right_key required)");
         }
 
-        int rightSize = estimateSize(rightSrc);
-        // left size is streaming → assume large or estimate if needed
-
+        int rightSize = estimateSize(ctx);
         final int MAX_BUILD_SIZE = 100_000;
 
         long start = System.currentTimeMillis();
 
         String strategy;
+        DataIterator rightIt = createRightIterator(ctx);
 
         if (rightSize <= MAX_BUILD_SIZE) {
             strategy = "HASH_JOIN";
             logger.info("[JOIN] strategy=HASH_JOIN rightSize=" + rightSize);
-            executeHashJoin(ctx, leftKey, rightKey, rightSrc);
+            executeHashJoin(ctx, leftKey, rightKey, rightIt);
         } else {
             strategy = "SORT_MERGE_JOIN";
             logger.info("[JOIN] strategy=SORT_MERGE_JOIN rightSize=" + rightSize);
-            executeSortMergeJoin(ctx, leftKey, rightKey, rightSrc);
+            executeSortMergeJoin(ctx, leftKey, rightKey, rightIt);
         }
 
         long duration = System.currentTimeMillis() - start;
@@ -139,15 +94,13 @@ public class JoinAction implements ActionExecutor {
 
     }
 
-    private void executeHashJoin(ExecutionContext ctx, String leftKey, String rightKey, String rightSrc){
+    private void executeHashJoin(ExecutionContext ctx, String leftKey, String rightKey, DataIterator rightIt){
         long start = System.currentTimeMillis();
         logger.info("[JOIN][HASH] phase=build_start");
 
-        // Load the right dataset into memory
         Map<String, List<String[]>> rightData = new HashMap<>();
         String[] rightHeader;
 
-        DataIterator rightIt = new CsvDataIterator(rightSrc);
         if (!rightIt.hasNext()) {
             throw new RuntimeException("Right dataset is empty");
         }
@@ -180,9 +133,7 @@ public class JoinAction implements ActionExecutor {
 
         logger.info("[JOIN][HASH] phase=build_complete entries=" + rightData.size());
 
-        // Define streaming Join output
         DataIterator leftIt = ctx.getIterator();
-
 
         DataIterator joinedIt = new DataIterator() {
 
@@ -221,7 +172,6 @@ public class JoinAction implements ActionExecutor {
             @Override
             public String[] next() {
 
-                // HEADER
                 if (!headerReturned) {
                     String[] leftHeader = leftIt.next();
 
@@ -248,7 +198,6 @@ public class JoinAction implements ActionExecutor {
                     return header.toArray(new String[0]);
                 }
 
-                // IMPORTANT: no recursion
                 if (currentMatches != null && currentMatches.hasNext()) {
                     String[] rightRow = currentMatches.next();
 
@@ -267,7 +216,6 @@ public class JoinAction implements ActionExecutor {
                     return joined;
                 }
 
-                // fetch next valid match
                 while (leftIt.hasNext()) {
                     currentLeftRow = leftIt.next();
 
@@ -276,7 +224,7 @@ public class JoinAction implements ActionExecutor {
 
                     if (matches != null && !matches.isEmpty()) {
                         currentMatches = matches.iterator();
-                        return next(); // safe: one-time recursion
+                        return next(); 
                     }
                 }
 
@@ -289,72 +237,37 @@ public class JoinAction implements ActionExecutor {
         logger.info("[JOIN][HASH] phase=complete durationMs=" + duration);
     }
 
-//    private void fillBufferIfNeeded() {
-//        while (buffer.isEmpty() && pendingLeftRow != null) {
-//
-//            String[] leftRow = pendingLeftRow;
-//            pendingLeftRow = null;
-//
-//            if (leftKeyIdx < leftRow.length) {
-//                String keyVal = leftRow[leftKeyIdx];
-//                List<String[]> matches = rightData.get(keyVal);
-//
-//                if (matches != null) {
-//                    for (String[] rightRow : matches) {
-//                        String[] joined = new String[leftRow.length + rightRow.length - 1];
-//
-//                        System.arraycopy(leftRow, 0, joined, 0, leftRow.length);
-//
-//                        int idx = leftRow.length;
-//                        for (int i = 0; i < rightRow.length; i++) {
-//                            if (i != rightKeyIdx) {
-//                                joined[idx++] = rightRow[i];
-//                            }
-//                        }
-//
-//                        buffer.add(joined);
-//                    }
-//                }
-//            }
-//        }
-//    }
-    private void executeSortMergeJoin(ExecutionContext ctx, String leftKey, String rightKey, String rightSrc){
+    private void executeSortMergeJoin(ExecutionContext ctx, String leftKey, String rightKey, DataIterator rightIt){
         try {
             long totalStart = System.currentTimeMillis();
 
             logger.info("[JOIN][SMJ] phase=start");
 
-            // 1. get left key index
             DataIterator leftIt = ctx.getIterator();
             String[] leftHeader = leftIt.next();
 
             int leftKeyIdx = findIndex(leftHeader, leftKey);
 
-            // 2. external sort LEFT
             long leftSortStart = System.currentTimeMillis();
             List<String> leftRuns = externalSortFromIterator(leftIt, leftKeyIdx);
             long leftSortTime = System.currentTimeMillis() - leftSortStart;
             logger.info("[JOIN][SMJ] phase=external_sort_left durationMs=" +
                     leftSortTime + " runs=" + leftRuns.size());
 
-            // 3. external sort RIGHT
-            DataIterator rightIt = new CsvDataIterator(rightSrc);
+
             String[] rightHeader = rightIt.next();
 
             int rightKeyIdx = findIndex(rightHeader, rightKey);
 
             long rightSortStart = System.currentTimeMillis();
-            List<String> rightRuns = externalSort(rightSrc, rightKeyIdx);
+            List<String> rightRuns = externalSortFromIterator(rightIt, rightKeyIdx);
             long rightSortTime = System.currentTimeMillis() - rightSortStart;
 
             logger.info("[JOIN][SMJ] phase=external_sort_right durationMs=" +
                     rightSortTime + " runs=" + rightRuns.size());
 
-            // 4. merge iterators
             DataIterator sortedLeft = new MergeIterator(leftRuns, leftKeyIdx);
             DataIterator sortedRight = new MergeIterator(rightRuns, rightKeyIdx);
-
-            // 5. now SAME merge logic as before (two pointer)
 
             long totalEnd = System.currentTimeMillis();
 
@@ -477,7 +390,6 @@ public class JoinAction implements ActionExecutor {
                 } else if (cmp > 0) {
                     advanceRight();
                 } else {
-                    // MATCH → collect groups
 
                     List<String[]> leftGroup = new ArrayList<>();
                     List<String[]> rightGroup = new ArrayList<>();
@@ -494,7 +406,6 @@ public class JoinAction implements ActionExecutor {
                         advanceRight();
                     }
 
-                    // cross product
                     for (String[] l : leftGroup) {
                         for (String[] r : rightGroup) {
 
@@ -552,7 +463,7 @@ public class JoinAction implements ActionExecutor {
             }
 
             if (hasNext()) {
-                return buffer.poll();   // ✅ NO recursion
+                return buffer.poll();
             }
 
             throw new RuntimeException("No more elements");
@@ -573,38 +484,6 @@ public class JoinAction implements ActionExecutor {
 
             chunk.sort(Comparator.comparing(row -> row[keyIdx]));
 
-            String tempFile = "/tmp/sort_" + UUID.randomUUID() + ".csv";
-            tempFiles.add(tempFile);
-
-            try (java.io.PrintWriter pw = new java.io.PrintWriter(tempFile)) {
-                for (String[] row : chunk) {
-                    pw.println(String.join(",", row));
-                }
-            }
-        }
-
-        return tempFiles;
-    }
-
-    private List<String> externalSort(String path, int keyIdx) throws Exception {
-        final int CHUNK_SIZE = 50_000;
-
-        List<String> tempFiles = new ArrayList<>();
-        DataIterator it = new CsvDataIterator(path);
-
-        String[] header = it.next(); // skip header
-
-        while (it.hasNext()) {
-            List<String[]> chunk = new ArrayList<>();
-
-            for (int i = 0; i < CHUNK_SIZE && it.hasNext(); i++) {
-                chunk.add(it.next());
-            }
-
-            // sort chunk
-            chunk.sort(Comparator.comparing(row -> row[keyIdx]));
-
-            // write to temp file
             String tempFile = "/tmp/sort_" + UUID.randomUUID() + ".csv";
             tempFiles.add(tempFile);
 

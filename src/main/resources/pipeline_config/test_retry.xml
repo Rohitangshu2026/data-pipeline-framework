@@ -1,16 +1,23 @@
+<?xml version='1.0' encoding='UTF-8'?>
 <job id="test_retry">
+    <datasources>
+        <datasource id="ds_1" type="csv">
+            <param name="src" value="src/main/resources/input/employees.csv" />
+        </datasource>
+        <datasource id="ds_2" type="csv">
+            <param name="src" value="raw_data" />
+        </datasource>
+    </datasources>
     <stage id="extract">
         <on_error handling_strategy="retry" retry_count="3" />
         <task>
-            <input type="csv">
-                <param name="src" value="src/main/resources/input/employees.csv"/>
-            </input>
+            <input ref="ds_1">
+                </input>
             <action type="ReadCSV">
-                <method name="read"/>
+                <method name="read" />
             </action>
-            <output type="csv">
-                <param name="src" value="raw_data"/>
-            </output>
+            <output ref="ds_2">
+                </output>
         </task>
     </stage>
 </job>

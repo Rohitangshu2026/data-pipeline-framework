@@ -68,6 +68,7 @@ public class PipelineExecutor {
                     );
 
                     ctx.getMetadata().put("stageId", stage.getId());
+                    ctx.getMetadata().put("globals", globals);
 
                     TaskMetrics metrics = new TaskMetrics();
                     metrics.start();

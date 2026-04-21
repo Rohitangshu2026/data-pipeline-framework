@@ -24,6 +24,7 @@ public class TransformAction implements ActionExecutor {
         methods.put("limit", new LimitStrategy());
         methods.put("normalize", new NormalizeStrategy());
         methods.put("scale", new ScaleStrategy());
+        methods.put("max", new MaxStrategy());
     }
 
     @Override

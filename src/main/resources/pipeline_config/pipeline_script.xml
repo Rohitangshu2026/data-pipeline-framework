@@ -1,53 +1,41 @@
-<?xml version="1.0" encoding="UTF-8"?>
-
+<?xml version='1.0' encoding='UTF-8'?>
 <job id="job1">
-
+    <datasources>
+        <datasource id="ds_1" type="csv">
+            <param name="src" value="src/main/resources/input/input.csv" />
+        </datasource>
+        <datasource id="ds_2" type="csv">
+            <param name="src" value="src/main/resources/output/output_script.txt" />
+        </datasource>
+        <datasource id="ds_3" type="csv">
+            <param name="src" value="src/main/resources/output/final_output.csv" />
+        </datasource>
+    </datasources>
     <stage id="stage1">
-
         <task>
-
-            <!-- DATA -->
-            <input type="csv">
-                <param name="src" value="src/main/resources/input/input.csv"/>
-            </input>
-
-            <!-- LOGIC -->
+            <input ref="ds_1">
+                </input>
             <action type="bash">
                 <method name="run">
-                    <param name="script" value="src/main/resources/scripts/test.sh"/>
-                    <param name="arg1" value="normal"/>
+                    <param name="script" value="src/main/resources/scripts/test.sh" />
+                    <param name="arg1" value="normal" />
                 </method>
             </action>
-
-            <!-- RESULT -->
-            <output type="csv">
-                <param name="src" value="src/main/resources/output/output_script.txt"/>
-            </output>
-
+            <output ref="ds_2">
+                </output>
         </task>
-
     </stage>
-
     <stage id="stage2" pre_req="stage1">
-
         <task>
-
-            <input type="csv">
-                <param name="src" value="src/main/resources/output/output_script.txt"/>
-            </input>
-
+            <input ref="ds_2">
+                </input>
             <action type="bash">
                 <method name="run">
-                    <param name="script" value="src/main/resources/scripts/enrich.sh"/>
+                    <param name="script" value="src/main/resources/scripts/enrich.sh" />
                 </method>
             </action>
-
-            <output type="csv">
-                <param name="src" value="src/main/resources/output/final_output.csv"/>
-            </output>
-
+            <output ref="ds_3">
+                </output>
         </task>
-
     </stage>
-
 </job>

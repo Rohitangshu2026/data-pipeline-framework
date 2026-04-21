@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="api-max-pipeline">
+
+    <datasources>
+        <datasource id="dummy_json_api" type="api">
+            <param name="url" value="https://dummyjson.com/users"/>
+            <param name="json_path" value="users"/>
+            <param name="fields" value="id,firstName,lastName,age"/>
+        </datasource>
+    </datasources>
+
+    <stage id="fetch_and_max">
+        <task>
+            <input ref="dummy_json_api"/>
+            <action type="transform">
+                <method name="max">
+                    <param name="column" value="age"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/max_age_api.csv"/>
+            </output>
+        </task>
+    </stage>
+</job>
