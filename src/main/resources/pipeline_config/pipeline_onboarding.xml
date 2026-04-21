@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="onboarding_job">
+    <datasources>
+        <datasource id="raw_students" type="csv">
+            <param name="src" value="src/main/resources/input/Reporting_Students.csv"/>
+        </datasource>
+        <datasource id="processed_students" type="csv">
+            <param name="src" value="target/output/Onboarded_Students.csv"/>
+        </datasource>
+    </datasources>
+
+    <stage id="onboarding_pipeline">
+        <on_error handling_strategy="abort"/>
+        
+        <task>
+            <input type="csv" ref="raw_students"/>
+            <action type="assign_roll_number">
+                <method name="execute">
+                    <param name="year" value="2024"/>
+                    <param name="format" value="MT{year}{counter:03}"/>
+                    <param name="dept_code_map" value="CSE:CS,ECE:EE,EEE:EE,ME:ME,CE:CE"/>
+                    <param name="strict_dept_mapping" value="false"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/temp_1.csv"/>
+            </output>
+        </task>
+        
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/temp_1.csv"/>
+            </input>
+            <action type="generate_email_id">
+                <method name="execute">
+                    <param name="domain" value="college.edu"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/temp_2.csv"/>
+            </output>
+        </task>
+        
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/temp_2.csv"/>
+            </input>
+            <action type="http_request">
+                <method name="execute">
+                    <param name="url" value="https://httpbin.org/post"/> 
+                    <param name="method" value="POST"/>
+                    <param name="output_prefix" value="github"/>
+                    <param name="headers_json" value='{"Authorization":"Bearer xyz", "Content-Type":"application/json"}'/>
+                    <param name="body_template" value='{"email":"{institute_email}","name":"{name}","platform":"github"}'/>
+                    <param name="response_mapping" value="github_id:id,github_username:login"/>
+                    <param name="strict_mapping" value="true"/>
+                    <param name="mock_mode" value="true"/>
+                    <param name="max_qps" value="50"/>
+                    <param name="timeout_ms" value="3000"/>
+                    <param name="retry_count" value="2"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/temp_3.csv"/>
+            </output>
+        </task>
+        
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/temp_3.csv"/>
+            </input>
+            <action type="http_request">
+                <method name="execute">
+                    <param name="url" value="https://httpbin.org/post"/> 
+                    <param name="method" value="POST"/>
+                    <param name="output_prefix" value="leetcode"/>
+                    <param name="headers_json" value='{"Authorization":"Bearer xyz", "Content-Type":"application/json"}'/>
+                    <param name="body_template" value='{"email":"{institute_email}","name":"{name}","platform":"leetcode"}'/>
+                    <param name="response_mapping" value="leetcode_id:id,leetcode_username:login"/>
+                    <param name="strict_mapping" value="true"/>
+                    <param name="mock_mode" value="true"/>
+                    <param name="max_qps" value="50"/>
+                    <param name="timeout_ms" value="3000"/>
+                    <param name="retry_count" value="2"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/temp_4.csv"/>
+            </output>
+        </task>
+        
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/temp_4.csv"/>
+            </input>
+            <action type="generate_pdf">
+                <method name="execute">
+                    <param name="output_dir" value="target/generated_pdfs"/>
+                    <param name="fields" value="Name:name,Roll Number:roll_number,Institute Email:institute_email,GitHub Username:github_username,LeetCode Username:leetcode_username"/>
+                    <param name="file_name_template" value="{roll_number}_credentials.txt"/>
+                </method>
+            </action>
+            <output type="csv" ref="processed_students"/>
+        </task>
+
+    </stage>
+</job>

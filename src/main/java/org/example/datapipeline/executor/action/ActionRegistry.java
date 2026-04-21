@@ -32,6 +32,12 @@ public class ActionRegistry{
         register(new BashAction());
         register(new TransformAction());
         register(new JoinAction());
+
+        java.util.ServiceLoader<org.example.datapipeline.plugin.ActionPlugin> loader = 
+            java.util.ServiceLoader.load(org.example.datapipeline.plugin.ActionPlugin.class);
+        for (org.example.datapipeline.plugin.ActionPlugin plugin : loader) {
+            register(new org.example.datapipeline.plugin.PluginAdapter(plugin));
+        }
     }
 
     private static void register(ActionExecutor action){

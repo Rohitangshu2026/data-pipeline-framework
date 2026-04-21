@@ -43,7 +43,11 @@ public class CsvDataIterator implements DataIterator {
     @Override
     public String[] next() {
         try {
-            String[] row = nextLine.split(",");
+            if (nextLine == null) {
+                throw new RuntimeException("CsvDataIterator next called when hasNext is false");
+            }
+            // Use -1 to prevent dropping trailing empty string columns
+            String[] row = nextLine.split(",", -1);
             nextLine = reader.readLine();
             return row;
         } catch (Exception e) {

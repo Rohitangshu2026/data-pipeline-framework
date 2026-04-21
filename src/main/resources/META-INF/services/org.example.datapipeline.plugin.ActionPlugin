@@ -1,0 +1,4 @@
+org.example.datapipeline.onboarding.AssignRollNumberPlugin
+org.example.datapipeline.onboarding.GenerateEmailIdPlugin
+org.example.datapipeline.onboarding.HttpRequestPlugin
+org.example.datapipeline.onboarding.GeneratePdfPlugin
