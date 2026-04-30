@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="ecommerce_cpu_heavy_pipeline_fixed">
+
+    <!-- ===================== DATASOURCE ===================== -->
+    <datasources>
+        <datasource id="events" type="csv">
+            <param name="src" value="/Users/rohit2026/Developer/data-pipeline-framework/src/main/resources/input/2019-Nov.csv"/>
+        </datasource>
+    </datasources>
+
+    <!-- ===================== STAGE 1 ===================== -->
+    <stage id="select_clean">
+        <task>
+            <input ref="events"/>
+            <action type="transform">
+                <method name="select">
+                    <param name="columns"
+                           value="event_type,product_id,price,user_id,user_session"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/selected.csv"/>
+            </output>
+        </task>
+
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/selected.csv"/>
+            </input>
+            <action type="transform">
+                <method name="fill_nulls">
+                    <param name="column" value="price"/>
+                    <param name="value" value="0"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/filled.csv"/>
+            </output>
+        </task>
+
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/filled.csv"/>
+            </input>
+            <action type="transform">
+                <method name="drop_nulls">
+                    <param name="columns" value="user_id"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/clean.csv"/>
+            </output>
+        </task>
+    </stage>
+
+    <!-- ===================== STAGE 2 ===================== -->
+    <stage id="feature_engineering" pre_req="select_clean">
+
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/clean.csv"/>
+            </input>
+            <action type="transform">
+                <method name="filter">
+                    <param name="column" value="event_type"/>
+                    <param name="operator" value="="/>
+                    <param name="value" value="purchase"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/purchases.csv"/>
+            </output>
+        </task>
+
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/purchases.csv"/>
+            </input>
+            <action type="transform">
+                <method name="map">
+                    <param name="column" value="price"/>
+                    <param name="operation" value="multiply"/>
+                    <param name="value" value="1.18"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/mapped.csv"/>
+            </output>
+        </task>
+
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/mapped.csv"/>
+            </input>
+            <action type="transform">
+                <method name="derive">
+                    <param name="new_column" value="score"/>
+                    <param name="formula" value="price * 0.7 + price * price * 0.001"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/derived.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+    <!-- ===================== STAGE 3 ===================== -->
+    <stage id="normalization" pre_req="feature_engineering">
+
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/derived.csv"/>
+            </input>
+            <action type="transform">
+                <method name="normalize">
+                    <param name="column" value="score"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/normalized.csv"/>
+            </output>
+        </task>
+
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/normalized.csv"/>
+            </input>
+            <action type="transform">
+                <method name="scale">
+                    <param name="column" value="score"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/scaled.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+    <!-- ===================== STAGE 4 ===================== -->
+    <stage id="aggregation" pre_req="normalization">
+
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/scaled.csv"/>
+            </input>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="user_id"/>
+                    <param name="column" value="score"/>
+                    <param name="operation" value="sum"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/user_score.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+    <!-- ===================== STAGE 5 ===================== -->
+    <!-- CORRECT RANKING -->
+    <stage id="ranking" pre_req="aggregation">
+
+        <!-- sort USERS (not events) -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/user_score.csv"/>
+            </input>
+            <action type="transform">
+                <method name="sort">
+                    <param name="column" value="sum_score"/>
+                    <param name="order" value="desc"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/ranked_users.csv"/>
+            </output>
+        </task>
+
+        <!-- top K USERS -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/output/ranked_users.csv"/>
+            </input>
+            <action type="transform">
+                <method name="limit">
+                    <param name="count" value="100"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/output/top_users.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+</job>

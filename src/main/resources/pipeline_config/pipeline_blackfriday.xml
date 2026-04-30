@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="black-friday-revenue-intelligence">
+
+    <!--
+        Black Friday 2019 — Revenue Intelligence Pipeline
+        ══════════════════════════════════════════════════
+        Input  : 2019-Nov.csv  (~67 million e-commerce events)
+        Output : target/blackfriday/report.txt  (ranked leaderboard)
+
+        DAG (stages 2a and 2b execute in parallel):
+
+          [1] filter_purchases
+                 ├──▶ [2a] aggregate_revenue   ─┐
+                 └──▶ [2b] aggregate_volume    ─┴──▶ [3] join_metrics
+                                                           │
+                                                      [4] derive_and_rank
+                                                           │
+                                                      [5] generate_report
+    -->
+
+    <!-- ═══════════════ DATASOURCES ═══════════════ -->
+    <datasources>
+
+        <datasource id="raw_events" type="csv">
+            <param name="src" value="src/main/resources/input/2019-Nov.csv"/>
+        </datasource>
+
+        <datasource id="ds_purchases" type="csv">
+            <param name="src" value="target/blackfriday/purchases.csv"/>
+        </datasource>
+
+        <datasource id="ds_revenue" type="csv">
+            <param name="src" value="target/blackfriday/revenue_by_category.csv"/>
+        </datasource>
+
+        <datasource id="ds_volume" type="csv">
+            <param name="src" value="target/blackfriday/volume_by_category.csv"/>
+        </datasource>
+
+        <datasource id="ds_combined" type="csv">
+            <param name="src" value="target/blackfriday/combined.csv"/>
+        </datasource>
+
+        <datasource id="ds_top10" type="csv">
+            <param name="src" value="target/blackfriday/top10.csv"/>
+        </datasource>
+
+        <datasource id="ds_report" type="csv">
+            <param name="src" value="target/blackfriday/report.txt"/>
+        </datasource>
+
+    </datasources>
+
+    <!-- ═══════════════ STAGE 1 ═══════════════
+         Filter 67M events down to purchase events only.
+         Streams row-by-row — zero heap pressure.
+    -->
+    <stage id="filter_purchases">
+        <task>
+            <input ref="raw_events"/>
+            <action type="transform">
+                <method name="filter">
+                    <param name="column"   value="event_type"/>
+                    <param name="operator" value="="/>
+                    <param name="value"    value="purchase"/>
+                </method>
+            </action>
+            <output ref="ds_purchases"/>
+        </task>
+    </stage>
+
+    <!-- ═══════════════ STAGE 2a ═══════════════
+         Total revenue (sum of price) per category.
+         Runs IN PARALLEL with stage 2b.
+    -->
+    <stage id="aggregate_revenue" pre_req="filter_purchases">
+        <task>
+            <input ref="ds_purchases"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="category_code"/>
+                    <param name="operation" value="sum"/>
+                    <param name="column"    value="price"/>
+                </method>
+            </action>
+            <output ref="ds_revenue"/>
+        </task>
+    </stage>
+
+    <!-- ═══════════════ STAGE 2b ═══════════════
+         Purchase volume (count of orders) per category.
+         Runs IN PARALLEL with stage 2a.
+    -->
+    <stage id="aggregate_volume" pre_req="filter_purchases">
+        <task>
+            <input ref="ds_purchases"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="category_code"/>
+                    <param name="operation" value="count"/>
+                    <param name="column"    value="product_id"/>
+                </method>
+            </action>
+            <output ref="ds_volume"/>
+        </task>
+    </stage>
+
+    <!-- ═══════════════ STAGE 3 ═══════════════
+         Join revenue + volume on category_code.
+         Output: [category_code, sum_price, right_count_product_id]
+         Waits for both stage 2a AND 2b to complete.
+    -->
+    <stage id="join_metrics" pre_req="aggregate_revenue aggregate_volume">
+        <task>
+            <input ref="ds_revenue"/>
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key"  value="category_code"/>
+                    <param name="right_key" value="category_code"/>
+                    <param name="right_ref" value="ds_volume"/>
+                </method>
+            </action>
+            <output ref="ds_combined"/>
+        </task>
+    </stage>
+
+    <!-- ═══════════════ STAGE 4 ═══════════════
+         Three chained tasks in one stage:
+           4a. Derive avg_order_value = sum_price / right_count_product_id
+           4b. Sort by revenue descending
+           4c. Limit to top 10 categories
+    -->
+    <stage id="derive_and_rank" pre_req="join_metrics">
+
+        <!-- 4a: derive avg order value -->
+        <task>
+            <input ref="ds_combined"/>
+            <action type="transform">
+                <method name="derive">
+                    <param name="new_column" value="avg_order_value"/>
+                    <param name="formula"    value="sum_price / right_count_product_id"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/blackfriday/with_aov.csv"/>
+            </output>
+        </task>
+
+        <!-- 4b: sort by total revenue (descending) -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/blackfriday/with_aov.csv"/>
+            </input>
+            <action type="transform">
+                <method name="sort">
+                    <param name="column" value="sum_price"/>
+                    <param name="order"  value="desc"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/blackfriday/sorted.csv"/>
+            </output>
+        </task>
+
+        <!-- 4c: keep only the top 10 -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/blackfriday/sorted.csv"/>
+            </input>
+            <action type="transform">
+                <method name="limit">
+                    <param name="count" value="10"/>
+                </method>
+            </action>
+            <output ref="ds_top10"/>
+        </task>
+
+    </stage>
+
+    <!-- ═══════════════ STAGE 5 ═══════════════
+         Bash script renders the ranked leaderboard table
+         and writes report.txt to target/blackfriday/.
+    -->
+    <stage id="generate_report" pre_req="derive_and_rank">
+        <task>
+            <input ref="ds_top10"/>
+            <action type="bash">
+                <method name="run">
+                    <param name="script" value="src/main/resources/scripts/leaderboard.sh"/>
+                </method>
+            </action>
+            <output ref="ds_report"/>
+        </task>
+    </stage>
+
+</job>
