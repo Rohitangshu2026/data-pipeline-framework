@@ -143,10 +143,26 @@ public class SemanticValidator {
                 case "aggregate" -> requireParams(params, stageId, methodName, "group_by", "column", "operation");
                 case "max" -> requireParams(params, stageId, methodName, "column");
             }
-        } else if ("join".equals(actionType) && "inner".equals(methodName)) {
+        } else if ("join".equals(actionType)) {
             if (!params.containsKey("left_key") || !params.containsKey("right_key") || (!params.containsKey("right_src") && !params.containsKey("right_ref"))) {
-                throw new RuntimeException("Missing parameters for inner join. Required: left_key, right_key, and (right_src or right_ref)");
+                throw new RuntimeException("Missing parameters for join. Required: left_key, right_key, and (right_src or right_ref)");
             }
+            String joinType = params.getOrDefault("join_type", "inner").toLowerCase();
+            if (!Set.of("inner", "left", "right", "full").contains(joinType)) {
+                throw new RuntimeException("Invalid join_type: " + joinType);
+            }
+            String joinStrategy = params.getOrDefault("join_strategy", "hash").toLowerCase();
+            if (!Set.of("hash", "sort_merge").contains(joinStrategy)) {
+                throw new RuntimeException("Invalid join_strategy: " + joinStrategy);
+            }
+            if ("sort_merge".equals(joinStrategy) && !"inner".equals(joinType)) {
+                throw new RuntimeException(
+                    "Stage '" + stageId + "': join_strategy 'sort_merge' only supports " +
+                    "join_type 'inner'. Use 'hash' for outer joins."
+                );
+            }
+        } else if ("bash".equals(actionType) && "run".equals(methodName)) {
+            requireParams(params, stageId, methodName, "script");
         }
     }
 

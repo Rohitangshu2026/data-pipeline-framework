@@ -62,6 +62,8 @@ public class Pipeline {
         for (List<Stage> level : levels) {
             System.out.println("Level " + levels.indexOf(level) + ": " + level.stream().map(Stage::getId).toList());
         }
-        PipelineExecutor.execute(job);
+
+        String xmlSnapshot = java.nio.file.Files.readString(java.nio.file.Paths.get(xmlPath), java.nio.charset.StandardCharsets.UTF_8);
+        PipelineExecutor.execute(job, xmlSnapshot);
     }
 }
