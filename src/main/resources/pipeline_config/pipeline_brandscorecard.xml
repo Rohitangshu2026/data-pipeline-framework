@@ -1,0 +1,529 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="brand-performance-scorecard">
+
+    <!--
+        Brand Performance Scorecard — November 2019
+        ═══════════════════════════════════════════
+        Input  : 2019-Nov.csv  (~67 million e-commerce events)
+        Output : target/brandscorecard/brand_scorecard.txt
+
+        Business question:
+          Which top 25 brands maximise revenue, and how do their
+          pricing strategies and order volumes compare?
+
+        Features demonstrated (exhaustive):
+          ✔ filter              Stage 1
+          ✔ fill_nulls (×2)     Stage 2 tasks 1-2
+          ✔ drop_nulls          Stage 2 task 3
+          ✔ map  (USD → EUR)    Stage 2 task 4
+          ✔ select              Stage 2 task 5
+          ✔ aggregate: sum      Stage 3a
+          ✔ aggregate: count    Stage 3b
+          ✔ aggregate: avg      Stage 3c
+          ✔ aggregate: min      Stage 3d  (on_error=proceed)
+          ✔ aggregate: max      Stage 3e  (on_error=retry)
+          ✔ 5 parallel stages   Stages 3a–3e
+          ✔ join × 4            Stages 4a–4d  (sequential, building wide table)
+          ✔ derive × 2          Stage 5
+          ✔ normalize           Stage 6 task 1
+          ✔ scale (z-score)     Stage 6 task 2
+          ✔ sort                Stage 7 task 1
+          ✔ limit               Stage 7 task 2
+          ✔ bash                Stage 8
+          ✔ chained tasks       Stages 2, 5, 6, 7
+          ✔ global datasources  16 named entries in <datasources>
+          ✔ inline datasources  Intermediate temps in stages 2, 5, 6, 7
+
+        DAG (levels):
+          Level 0  : [1]  filter_purchases
+          Level 1  : [2]  clean_purchases
+          Level 2  : [3a] agg_revenue  [3b] agg_orders  [3c] agg_avg
+                         [3d] agg_min  [3e] agg_max      ← all 5 in PARALLEL
+          Level 3  : [4a] join_rev_orders
+          Level 4  : [4b] join_with_avg
+          Level 5  : [4c] join_with_min
+          Level 6  : [4d] join_with_max
+          Level 7  : [5]  derive_metrics
+          Level 8  : [6]  score_brands
+          Level 9  : [7]  rank_top_brands
+          Level 10 : [8]  generate_scorecard
+    -->
+
+    <!-- ═══════════════ DATASOURCES ═══════════════ -->
+    <datasources>
+
+        <!-- Input -->
+        <datasource id="raw_events" type="csv">
+            <param name="src" value="src/main/resources/input/2019-Nov.csv"/>
+        </datasource>
+
+        <!-- Stage 1 output -->
+        <datasource id="ds_purchases_raw" type="csv">
+            <param name="src" value="target/brandscorecard/purchases_raw.csv"/>
+        </datasource>
+
+        <!-- Stage 2 final output -->
+        <datasource id="ds_purchases_clean" type="csv">
+            <param name="src" value="target/brandscorecard/purchases_clean.csv"/>
+        </datasource>
+
+        <!-- Stage 3 outputs — one per aggregation -->
+        <datasource id="ds_brand_revenue" type="csv">
+            <param name="src" value="target/brandscorecard/brand_revenue.csv"/>
+        </datasource>
+        <datasource id="ds_brand_orders" type="csv">
+            <param name="src" value="target/brandscorecard/brand_orders.csv"/>
+        </datasource>
+        <datasource id="ds_brand_avg" type="csv">
+            <param name="src" value="target/brandscorecard/brand_avg.csv"/>
+        </datasource>
+        <datasource id="ds_brand_min" type="csv">
+            <param name="src" value="target/brandscorecard/brand_min.csv"/>
+        </datasource>
+        <datasource id="ds_brand_max" type="csv">
+            <param name="src" value="target/brandscorecard/brand_max.csv"/>
+        </datasource>
+
+        <!-- Stage 4 join outputs -->
+        <datasource id="ds_join1" type="csv">
+            <param name="src" value="target/brandscorecard/join1_rev_orders.csv"/>
+        </datasource>
+        <datasource id="ds_join2" type="csv">
+            <param name="src" value="target/brandscorecard/join2_with_avg.csv"/>
+        </datasource>
+        <datasource id="ds_join3" type="csv">
+            <param name="src" value="target/brandscorecard/join3_with_min.csv"/>
+        </datasource>
+        <datasource id="ds_brand_full" type="csv">
+            <param name="src" value="target/brandscorecard/brand_full.csv"/>
+        </datasource>
+
+        <!-- Stage 5 output — 8 columns including two derived -->
+        <datasource id="ds_brand_metrics" type="csv">
+            <param name="src" value="target/brandscorecard/brand_metrics.csv"/>
+        </datasource>
+
+        <!-- Stage 6 output — sum_price normalised, right_avg_price z-scored -->
+        <datasource id="ds_brand_scored" type="csv">
+            <param name="src" value="target/brandscorecard/brand_scored.csv"/>
+        </datasource>
+
+        <!-- Stage 7 output — top 25 brands -->
+        <datasource id="ds_brand_top25" type="csv">
+            <param name="src" value="target/brandscorecard/brand_top25.csv"/>
+        </datasource>
+
+        <!-- Stage 8 output — formatted plain-text report -->
+        <datasource id="ds_report" type="csv">
+            <param name="src" value="target/brandscorecard/brand_scorecard.txt"/>
+        </datasource>
+
+    </datasources>
+
+    <!-- ═══════════════ STAGE 1 ═══════════════
+         Filter 67M events to purchase rows only.
+         Same streaming pass as Use Case 1 — zero heap pressure.
+    -->
+    <stage id="filter_purchases">
+        <task>
+            <input ref="raw_events"/>
+            <action type="transform">
+                <method name="filter">
+                    <param name="column"   value="event_type"/>
+                    <param name="operator" value="="/>
+                    <param name="value"    value="purchase"/>
+                </method>
+            </action>
+            <output ref="ds_purchases_raw"/>
+        </task>
+    </stage>
+
+    <!-- ═══════════════ STAGE 2 ═══════════════
+         Five chained data-quality + enrichment tasks on the
+         916K purchase rows.  Each task streams from the previous
+         task's output file — no data held in memory across tasks.
+
+         Task 1 : fill_nulls  — brand  → "UNKNOWN"
+         Task 2 : fill_nulls  — category_code → "uncategorized"
+         Task 3 : drop_nulls  — remove rows missing price OR brand
+         Task 4 : map         — price × 0.92  (USD → EUR)
+         Task 5 : select      — project to [brand, price, product_id, user_id]
+    -->
+    <stage id="clean_purchases" pre_req="filter_purchases">
+
+        <!-- Task 1: impute missing brand -->
+        <task>
+            <input ref="ds_purchases_raw"/>
+            <action type="transform">
+                <method name="fill_nulls">
+                    <param name="column" value="brand"/>
+                    <param name="value"  value="UNKNOWN"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/brandscorecard/p1_brand_filled.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 2: impute missing category_code -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/brandscorecard/p1_brand_filled.csv"/>
+            </input>
+            <action type="transform">
+                <method name="fill_nulls">
+                    <param name="column" value="category_code"/>
+                    <param name="value"  value="uncategorized"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/brandscorecard/p2_cat_filled.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 3: remove rows without a price or brand -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/brandscorecard/p2_cat_filled.csv"/>
+            </input>
+            <action type="transform">
+                <method name="drop_nulls">
+                    <param name="columns" value="price,brand"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/brandscorecard/p3_dropped.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 4: convert price USD → EUR (×0.92) -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/brandscorecard/p3_dropped.csv"/>
+            </input>
+            <action type="transform">
+                <method name="map">
+                    <param name="column"    value="price"/>
+                    <param name="operation" value="multiply"/>
+                    <param name="value"     value="0.92"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/brandscorecard/p4_eur.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 5: project to just the columns needed downstream -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/brandscorecard/p4_eur.csv"/>
+            </input>
+            <action type="transform">
+                <method name="select">
+                    <param name="columns" value="brand,price,product_id,user_id"/>
+                </method>
+            </action>
+            <output ref="ds_purchases_clean"/>
+        </task>
+
+    </stage>
+
+    <!-- ═══════════════ STAGES 3a–3e ═══════════════
+         Five aggregations run IN PARALLEL — same pre_req, same input.
+         Each produces a two-column file: [brand, <metric>].
+
+         3a  sum(price)        → total revenue per brand
+         3b  count(product_id) → total orders per brand
+         3c  avg(price)        → average order value per brand
+         3d  min(price)        → cheapest single order per brand   [on_error=proceed]
+         3e  max(price)        → most expensive single order        [on_error=retry×2]
+    -->
+
+    <stage id="agg_revenue" pre_req="clean_purchases">
+        <task>
+            <input ref="ds_purchases_clean"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="brand"/>
+                    <param name="operation" value="sum"/>
+                    <param name="column"    value="price"/>
+                </method>
+            </action>
+            <output ref="ds_brand_revenue"/>
+        </task>
+    </stage>
+
+    <stage id="agg_orders" pre_req="clean_purchases">
+        <task>
+            <input ref="ds_purchases_clean"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="brand"/>
+                    <param name="operation" value="count"/>
+                    <param name="column"    value="product_id"/>
+                </method>
+            </action>
+            <output ref="ds_brand_orders"/>
+        </task>
+    </stage>
+
+    <stage id="agg_avg" pre_req="clean_purchases">
+        <task>
+            <input ref="ds_purchases_clean"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="brand"/>
+                    <param name="operation" value="avg"/>
+                    <param name="column"    value="price"/>
+                </method>
+            </action>
+            <output ref="ds_brand_avg"/>
+        </task>
+    </stage>
+
+    <!-- on_error=proceed: if this stage fails the pipeline continues;
+         downstream join_with_min will also carry on_error=proceed -->
+    <stage id="agg_min" pre_req="clean_purchases">
+        <on_error handling_strategy="proceed"/>
+        <task>
+            <input ref="ds_purchases_clean"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="brand"/>
+                    <param name="operation" value="min"/>
+                    <param name="column"    value="price"/>
+                </method>
+            </action>
+            <output ref="ds_brand_min"/>
+        </task>
+    </stage>
+
+    <!-- on_error=retry: transient failures get 2 retry attempts before abort -->
+    <stage id="agg_max" pre_req="clean_purchases">
+        <on_error handling_strategy="retry" retry_count="2"/>
+        <task>
+            <input ref="ds_purchases_clean"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="brand"/>
+                    <param name="operation" value="max"/>
+                    <param name="column"    value="price"/>
+                </method>
+            </action>
+            <output ref="ds_brand_max"/>
+        </task>
+    </stage>
+
+    <!-- ═══════════════ STAGES 4a–4d ═══════════════
+         Four sequential inner joins assemble a wide brand-metrics table.
+
+         After each join the output header grows:
+           4a → [brand, sum_price, right_count_product_id]
+           4b → [brand, sum_price, right_count_product_id, right_avg_price]
+           4c → [brand, sum_price, right_count_product_id, right_avg_price, right_min_price]
+           4d → [brand, sum_price, right_count_product_id, right_avg_price,
+                 right_min_price, right_max_price]
+
+         All use hash join (right side is ~hundreds of rows — well below threshold).
+    -->
+
+    <stage id="join_rev_orders" pre_req="agg_revenue agg_orders">
+        <task>
+            <input ref="ds_brand_revenue"/>
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key"  value="brand"/>
+                    <param name="right_key" value="brand"/>
+                    <param name="right_ref" value="ds_brand_orders"/>
+                </method>
+            </action>
+            <output ref="ds_join1"/>
+        </task>
+    </stage>
+
+    <stage id="join_with_avg" pre_req="join_rev_orders agg_avg">
+        <task>
+            <input ref="ds_join1"/>
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key"  value="brand"/>
+                    <param name="right_key" value="brand"/>
+                    <param name="right_ref" value="ds_brand_avg"/>
+                </method>
+            </action>
+            <output ref="ds_join2"/>
+        </task>
+    </stage>
+
+    <stage id="join_with_min" pre_req="join_with_avg agg_min">
+        <task>
+            <input ref="ds_join2"/>
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key"  value="brand"/>
+                    <param name="right_key" value="brand"/>
+                    <param name="right_ref" value="ds_brand_min"/>
+                </method>
+            </action>
+            <output ref="ds_join3"/>
+        </task>
+    </stage>
+
+    <stage id="join_with_max" pre_req="join_with_min agg_max">
+        <task>
+            <input ref="ds_join3"/>
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key"  value="brand"/>
+                    <param name="right_key" value="brand"/>
+                    <param name="right_ref" value="ds_brand_max"/>
+                </method>
+            </action>
+            <output ref="ds_brand_full"/>
+        </task>
+    </stage>
+
+    <!-- ═══════════════ STAGE 5 ═══════════════
+         Two chained derive tasks add computed columns using the
+         RPN formula engine (Shunting-yard algorithm).
+
+         Task 1 : price_spread_pct  = right_max_price - right_min_price
+                  (price range the brand sells at — breadth of catalogue)
+
+         Task 2 : revenue_per_order = sum_price / right_count_product_id
+                  (average transaction value in EUR, computed from raw sums)
+
+         NOTE: sum_price is still in raw EUR at this point; derive runs
+         BEFORE normalisation so revenue_per_order is a meaningful EUR value.
+    -->
+    <stage id="derive_metrics" pre_req="join_with_max">
+
+        <!-- Task 1: price range = max - min -->
+        <task>
+            <input ref="ds_brand_full"/>
+            <action type="transform">
+                <method name="derive">
+                    <param name="new_column" value="price_spread_pct"/>
+                    <param name="formula"    value="right_max_price - right_min_price"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/brandscorecard/d1_spread.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 2: revenue per transaction -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/brandscorecard/d1_spread.csv"/>
+            </input>
+            <action type="transform">
+                <method name="derive">
+                    <param name="new_column" value="revenue_per_order"/>
+                    <param name="formula"    value="sum_price / right_count_product_id"/>
+                </method>
+            </action>
+            <output ref="ds_brand_metrics"/>
+        </task>
+
+    </stage>
+
+    <!-- ═══════════════ STAGE 6 ═══════════════
+         Two chained scoring tasks transform raw metrics into
+         dimensionless scores for fair cross-brand comparison.
+
+         Task 1 : normalize(sum_price)
+                  Min-max scales revenue to [0, 1].
+                  The top-revenue brand gets score 1.0; the lowest gets 0.0.
+
+         Task 2 : scale(right_avg_price)
+                  Z-score standardises average order value (mean=0, σ=1).
+                  Brands priced above average get positive z-scores;
+                  budget brands get negative z-scores.
+    -->
+    <stage id="score_brands" pre_req="derive_metrics">
+
+        <!-- Task 1: revenue → normalised score [0, 1] -->
+        <task>
+            <input ref="ds_brand_metrics"/>
+            <action type="transform">
+                <method name="normalize">
+                    <param name="column" value="sum_price"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/brandscorecard/n1_normalized.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 2: avg price → z-score -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/brandscorecard/n1_normalized.csv"/>
+            </input>
+            <action type="transform">
+                <method name="scale">
+                    <param name="column" value="right_avg_price"/>
+                </method>
+            </action>
+            <output ref="ds_brand_scored"/>
+        </task>
+
+    </stage>
+
+    <!-- ═══════════════ STAGE 7 ═══════════════
+         Two chained tasks rank the scored brands and retain the top 25.
+
+         Task 1 : sort by normalised revenue score (desc) — rank 1 = highest revenue
+         Task 2 : limit to 25 brands
+    -->
+    <stage id="rank_top_brands" pre_req="score_brands">
+
+        <!-- Task 1: sort by revenue score descending -->
+        <task>
+            <input ref="ds_brand_scored"/>
+            <action type="transform">
+                <method name="sort">
+                    <param name="column" value="sum_price"/>
+                    <param name="order"  value="desc"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/brandscorecard/sorted.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 2: keep top 25 only -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/brandscorecard/sorted.csv"/>
+            </input>
+            <action type="transform">
+                <method name="limit">
+                    <param name="count" value="25"/>
+                </method>
+            </action>
+            <output ref="ds_brand_top25"/>
+        </task>
+
+    </stage>
+
+    <!-- ═══════════════ STAGE 8 ═══════════════
+         Bash script renders the ranked brand scorecard table.
+         Input  : brand_top25.csv  (25 brands × 8 scored columns)
+         Output : brand_scorecard.txt  (plain-text report)
+         Stdout : ANSI-coloured version printed to terminal
+    -->
+    <stage id="generate_scorecard" pre_req="rank_top_brands">
+        <task>
+            <input ref="ds_brand_top25"/>
+            <action type="bash">
+                <method name="run">
+                    <param name="script" value="src/main/resources/scripts/brand_scorecard.sh"/>
+                </method>
+            </action>
+            <output ref="ds_report"/>
+        </task>
+    </stage>
+
+</job>
