@@ -1,145 +1,156 @@
-<?xml version='1.0' encoding='UTF-8'?>
+<?xml version="1.0" encoding="UTF-8"?>
 <job id="full-feature-pipeline">
+
+    <!-- ===================== DATASOURCES ===================== -->
     <datasources>
-        <datasource id="ds_1" type="csv">
-            <param name="src" value="src/main/resources/input/users.csv" />
+        <datasource id="ds_users" type="csv">
+            <param name="src" value="src/main/resources/input/users.csv"/>
         </datasource>
-        <datasource id="ds_2" type="csv">
-            <param name="src" value="src/main/resources/output/join_output.csv" />
-        </datasource>
-        <datasource id="ds_3" type="csv">
-            <param name="src" value="src/main/resources/output/cleaned_join_output.csv" />
-        </datasource>
-        <datasource id="ds_4" type="csv">
-            <param name="src" value="src/main/resources/output/country_sum.csv" />
-        </datasource>
-        <datasource id="ds_5" type="csv">
-            <param name="src" value="src/main/resources/output/country_avg.csv" />
-        </datasource>
-        <datasource id="ds_6" type="csv">
-            <param name="src" value="src/main/resources/output/country_min.csv" />
-        </datasource>
-        <datasource id="ds_7" type="csv">
-            <param name="src" value="src/main/resources/output/country_max.csv" />
-        </datasource>
-        <datasource id="ds_8" type="csv">
-            <param name="src" value="src/main/resources/output/category_count.csv" />
-        </datasource>
-        <datasource id="ds_9" type="csv">
-            <param name="src" value="src/main/resources/output/max_country_sum.csv" />
-        </datasource>
+
         <datasource id="ds_orders" type="csv">
-            <param name="src" value="src/main/resources/input/orders.csv" />
+            <param name="src" value="src/main/resources/input/orders.csv"/>
+        </datasource>
+
+        <datasource id="ds_join" type="csv">
+            <param name="src" value="src/main/resources/output/join_output.csv"/>
+        </datasource>
+
+        <datasource id="ds_clean" type="csv">
+            <param name="src" value="src/main/resources/output/cleaned_join_output.csv"/>
+        </datasource>
+
+        <datasource id="ds_sum" type="csv">
+            <param name="src" value="src/main/resources/output/country_sum.csv"/>
+        </datasource>
+
+        <datasource id="ds_avg" type="csv">
+            <param name="src" value="src/main/resources/output/country_avg.csv"/>
+        </datasource>
+
+        <datasource id="ds_min" type="csv">
+            <param name="src" value="src/main/resources/output/country_min.csv"/>
+        </datasource>
+
+        <datasource id="ds_max" type="csv">
+            <param name="src" value="src/main/resources/output/country_max.csv"/>
+        </datasource>
+
+        <datasource id="ds_count" type="csv">
+            <param name="src" value="src/main/resources/output/category_count.csv"/>
+        </datasource>
+
+        <datasource id="ds_meta_max" type="csv">
+            <param name="src" value="src/main/resources/output/max_country_sum.csv"/>
         </datasource>
     </datasources>
+
+    <!-- ===================== STAGE 1: JOIN ===================== -->
     <stage id="join_stage">
         <task>
-            <input ref="ds_1">
-                </input>
+            <input ref="ds_users"/>
             <action type="join">
                 <method name="inner">
-                    <param name="left_key" value="user_id" />
-                    <param name="right_key" value="user_id" />
-                    <param name="right_ref" value="ds_orders" />
+                    <param name="left_key" value="user_id"/>
+                    <param name="right_key" value="user_id"/>
+                    <param name="right_ref" value="ds_orders"/>
                 </method>
             </action>
-            <output ref="ds_2">
-                </output>
+            <output ref="ds_join"/>
         </task>
     </stage>
+
+    <!-- ===================== STAGE 2: CLEAN ===================== -->
     <stage id="clean_stage" pre_req="join_stage">
         <task>
-            <input ref="ds_2">
-                </input>
+            <input ref="ds_join"/>
             <action type="transform">
                 <method name="drop_nulls">
-                    <param name="columns" value="country,right_amount" />
+                    <!-- ⚠️ Make sure these column names ACTUALLY exist -->
+                    <param name="columns" value="country,right_amount"/>
                 </method>
             </action>
-            <output ref="ds_3">
-                </output>
+            <output ref="ds_clean"/>
         </task>
     </stage>
+
+    <!-- ===================== STAGE 3: AGGREGATIONS ===================== -->
     <stage id="aggregation_stage" pre_req="clean_stage">
+
         <task>
-            <input ref="ds_3">
-                </input>
+            <input ref="ds_clean"/>
             <action type="transform">
                 <method name="aggregate">
-                    <param name="group_by" value="country" />
-                    <param name="operation" value="sum" />
-                    <param name="column" value="right_amount" />
+                    <param name="group_by" value="country"/>
+                    <param name="operation" value="sum"/>
+                    <param name="column" value="right_amount"/>
                 </method>
             </action>
-            <output ref="ds_4">
-                </output>
+            <output ref="ds_sum"/>
         </task>
+
         <task>
-            <input ref="ds_3">
-                </input>
+            <input ref="ds_clean"/>
             <action type="transform">
                 <method name="aggregate">
-                    <param name="group_by" value="country" />
-                    <param name="operation" value="avg" />
-                    <param name="column" value="right_amount" />
+                    <param name="group_by" value="country"/>
+                    <param name="operation" value="avg"/>
+                    <param name="column" value="right_amount"/>
                 </method>
             </action>
-            <output ref="ds_5">
-                </output>
+            <output ref="ds_avg"/>
         </task>
+
         <task>
-            <input ref="ds_3">
-                </input>
+            <input ref="ds_clean"/>
             <action type="transform">
                 <method name="aggregate">
-                    <param name="group_by" value="country" />
-                    <param name="operation" value="min" />
-                    <param name="column" value="right_amount" />
+                    <param name="group_by" value="country"/>
+                    <param name="operation" value="min"/>
+                    <param name="column" value="right_amount"/>
                 </method>
             </action>
-            <output ref="ds_6">
-                </output>
+            <output ref="ds_min"/>
         </task>
+
         <task>
-            <input ref="ds_3">
-                </input>
+            <input ref="ds_clean"/>
             <action type="transform">
                 <method name="aggregate">
-                    <param name="group_by" value="country" />
-                    <param name="operation" value="max" />
-                    <param name="column" value="right_amount" />
+                    <param name="group_by" value="country"/>
+                    <param name="operation" value="max"/>
+                    <param name="column" value="right_amount"/>
                 </method>
             </action>
-            <output ref="ds_7">
-                </output>
+            <output ref="ds_max"/>
         </task>
+
         <task>
-            <input ref="ds_3">
-                </input>
+            <input ref="ds_clean"/>
             <action type="transform">
                 <method name="aggregate">
-                    <param name="group_by" value="right_category" />
-                    <param name="operation" value="count" />
-                    <param name="column" value="right_amount" />
+                    <param name="group_by" value="right_category"/>
+                    <param name="operation" value="count"/>
+                    <param name="column" value="right_amount"/>
                 </method>
             </action>
-            <output ref="ds_8">
-                </output>
+            <output ref="ds_count"/>
         </task>
+
     </stage>
+
+    <!-- ===================== STAGE 4: META AGG (FIXED) ===================== -->
     <stage id="meta_aggregation_stage" pre_req="aggregation_stage">
         <task>
-            <input ref="ds_4">
-                </input>
+            <input ref="ds_sum"/>
             <action type="transform">
-                <method name="aggregate">
-                    <param name="group_by" value="country" />
-                    <param name="operation" value="max" />
-                    <param name="column" value="sum_right_amount" />
+                <method name="max">
+                    <!-- ⚠️ No group_by here -->
+                    <!-- This computes GLOBAL max across countries -->
+                    <param name="column" value="sum_right_amount"/>
                 </method>
             </action>
-            <output ref="ds_9">
-                </output>
+            <output ref="ds_meta_max"/>
         </task>
     </stage>
+
 </job>
