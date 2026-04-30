@@ -59,3 +59,20 @@ Thumbs.db
 src/main/resources/output/
 
 logs
+
+# =========================
+# Pipeline data (ignore large datasets)
+# =========================
+runs/
+
+# Ignore all CSVs
+src/main/resources/input/*.csv
+
+# Re-allow directory (safe guard)
+!src/main/resources/input/
+
+# Allow test file
+!src/main/resources/input/test_input.csv
+
+# Large files
+*.zip
