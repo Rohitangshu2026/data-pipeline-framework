@@ -38,29 +38,16 @@ public class JoinAction implements ActionExecutor {
         throw new RuntimeException("Missing right_src or right_ref parameter for join");
     }
 
-    private int estimateSize(ExecutionContext ctx) {
-        int count = 0;
-        DataIterator it = createRightIterator(ctx);
-        if (it.hasNext()) it.next(); // skip header
-
-        while (it.hasNext() && count < 10000) { // cap for speed
-            it.next();
-            count++;
-        }
-        return count == 10000 ? Integer.MAX_VALUE : count;
-    }
-
     @Override
     public void execute(ExecutionContext ctx) {
-
         Method method = ctx.getMethod();
-        String type = method.getName().toLowerCase();
+        Map<String, String> params = method.getParamMap();
+        String joinType = params.getOrDefault("join_type", "inner").toLowerCase();
         
-        if (!type.equalsIgnoreCase("inner")) {
-            throw new RuntimeException("Join currently only supports 'inner' method");
+        if (!Set.of("inner", "left", "right", "full").contains(joinType)) {
+            throw new RuntimeException("Invalid join_type: " + joinType);
         }
 
-        Map<String, String> params = method.getParamMap();
         String leftKey = params.get("left_key");
         String rightKey = params.get("right_key");
 
@@ -68,94 +55,96 @@ public class JoinAction implements ActionExecutor {
             throw new RuntimeException("Missing params for join (left_key, right_key required)");
         }
 
-        int rightSize = estimateSize(ctx);
-        final int MAX_BUILD_SIZE = 100_000;
-
         long start = System.currentTimeMillis();
-
-        String strategy;
-        DataIterator rightIt = createRightIterator(ctx);
-
-        if (rightSize <= MAX_BUILD_SIZE) {
-            strategy = "HASH_JOIN";
-            logger.info("[JOIN] strategy=HASH_JOIN rightSize=" + rightSize);
-            executeHashJoin(ctx, leftKey, rightKey, rightIt);
-        } else {
-            strategy = "SORT_MERGE_JOIN";
-            logger.info("[JOIN] strategy=SORT_MERGE_JOIN rightSize=" + rightSize);
-            executeSortMergeJoin(ctx, leftKey, rightKey, rightIt);
-        }
-
-        long duration = System.currentTimeMillis() - start;
-
-        logger.info("[JOIN_METRICS] strategy=" + strategy +
-                " durationMs=" + duration +
-                " rightSizeEstimate=" + rightSize);
-
-    }
-
-    private void executeHashJoin(ExecutionContext ctx, String leftKey, String rightKey, DataIterator rightIt){
-        long start = System.currentTimeMillis();
-        logger.info("[JOIN][HASH] phase=build_start");
-
-        Map<String, List<String[]>> rightData = new HashMap<>();
-        String[] rightHeader;
-
-        if (!rightIt.hasNext()) {
-            throw new RuntimeException("Right dataset is empty");
-        }
-
-        rightHeader = rightIt.next();
-        int tempRightKeyIdx = -1;
-
-
-        for (int i = 0; i < rightHeader.length; i++) {
-            if (rightHeader[i].trim().equalsIgnoreCase(rightKey)) {
-                tempRightKeyIdx = i;
-                break;
-            }
-        }
-
-        if (tempRightKeyIdx == -1) {
-            throw new RuntimeException("right_key not found in right dataset");
-        }
-
-        final int rightKeyIdx = tempRightKeyIdx;
-
-
-        while (rightIt.hasNext()) {
-            String[] row = rightIt.next();
-            if (rightKeyIdx < row.length) {
-                String keyVal = row[rightKeyIdx];
-                rightData.computeIfAbsent(keyVal, k -> new ArrayList<>()).add(row);
-            }
-        }
-
-        logger.info("[JOIN][HASH] phase=build_complete entries=" + rightData.size());
+        String strategy = params.getOrDefault("join_strategy", "hash").toLowerCase();
 
         DataIterator leftIt = ctx.getIterator();
+        DataIterator rightIt = createRightIterator(ctx);
 
-        DataIterator joinedIt = new DataIterator() {
+        String[] leftHeader = leftIt.hasNext() ? leftIt.next() : new String[0];
+        String[] rightHeader = rightIt.hasNext() ? rightIt.next() : new String[0];
 
+        int leftKeyIdx = -1;
+        int rightKeyIdx = -1;
+
+        if (leftHeader.length > 0) {
+            leftKeyIdx = findIndex(leftHeader, leftKey);
+        }
+        if (rightHeader.length > 0) {
+            rightKeyIdx = findIndex(rightHeader, rightKey);
+        }
+
+        DataIterator joinedIt;
+
+        if ("hash".equals(strategy)) {
+            logger.info("[JOIN] strategy=HASH_JOIN type=" + joinType);
+            joinedIt = executeHashJoin(leftIt, rightIt, leftHeader, rightHeader, leftKeyIdx, rightKeyIdx, joinType);
+        } else if ("sort_merge".equals(strategy)) {
+            if (!"inner".equals(joinType)) {
+                throw new RuntimeException("Outer joins not supported with sort_merge yet");
+            }
+            logger.info("[JOIN] strategy=SORT_MERGE_JOIN type=" + joinType);
+            joinedIt = executeSortMergeJoin(ctx, leftIt, rightIt, leftHeader, rightHeader, leftKeyIdx, rightKeyIdx);
+        } else {
+            throw new RuntimeException("Invalid join_strategy: " + strategy);
+        }
+
+        DataIterator finalIt = new CleanupIterator(joinedIt, ctx);
+        ctx.setIterator(finalIt);
+
+        long duration = System.currentTimeMillis() - start;
+        logger.info("[JOIN_METRICS] strategy=" + strategy + " durationMs=" + duration);
+    }
+
+    private DataIterator executeHashJoin(DataIterator leftIt, DataIterator rightIt,
+                                         String[] leftHeader, String[] rightHeader,
+                                         int leftKeyIdx, int rightKeyIdx, String joinType) {
+        logger.info("[JOIN][HASH] phase=build_start type=" + joinType);
+        Map<String, List<String[]>> rightData = new HashMap<>();
+        Map<String[], Boolean> matchedRightRows = new IdentityHashMap<>();
+
+        if (rightHeader.length > 0) {
+            while (rightIt.hasNext()) {
+                String[] row = rightIt.next();
+                if (rightKeyIdx < row.length) {
+                    String keyVal = row[rightKeyIdx];
+                    rightData.computeIfAbsent(keyVal, k -> new ArrayList<>()).add(row);
+                }
+                matchedRightRows.put(row, false);
+            }
+        } else {
+            logger.warning("[JOIN][HASH] Right dataset is completely empty");
+        }
+        logger.info("[JOIN][HASH] phase=build_complete entries=" + rightData.size());
+
+        return new DataIterator() {
             boolean headerReturned = false;
-            int leftKeyIdx = -1;
-
             Iterator<String[]> currentMatches = null;
             String[] currentLeftRow = null;
+            boolean emitUnmatchedLeft = false;
+            
+            Iterator<String[]> unmatchedRightRows = null;
 
             @Override
             public boolean hasNext() {
-
                 if (!headerReturned) return true;
 
                 if (currentMatches != null && currentMatches.hasNext()) {
                     return true;
                 }
+                
+                if (emitUnmatchedLeft) {
+                    return true;
+                }
+                
+                if (unmatchedRightRows != null) {
+                    return unmatchedRightRows.hasNext();
+                }
 
                 while (leftIt.hasNext()) {
                     currentLeftRow = leftIt.next();
 
-                    if (leftKeyIdx < currentLeftRow.length) {
+                    if (leftKeyIdx != -1 && leftKeyIdx < currentLeftRow.length) {
                         String key = currentLeftRow[leftKeyIdx];
                         List<String[]> matches = rightData.get(key);
 
@@ -164,6 +153,22 @@ public class JoinAction implements ActionExecutor {
                             return true;
                         }
                     }
+                    
+                    if ("left".equals(joinType) || "full".equals(joinType)) {
+                        emitUnmatchedLeft = true;
+                        return true;
+                    }
+                }
+                
+                if (("right".equals(joinType) || "full".equals(joinType)) && unmatchedRightRows == null) {
+                    List<String[]> unmatched = new ArrayList<>();
+                    for (Map.Entry<String[], Boolean> entry : matchedRightRows.entrySet()) {
+                        if (!entry.getValue()) {
+                            unmatched.add(entry.getKey());
+                        }
+                    }
+                    unmatchedRightRows = unmatched.iterator();
+                    return unmatchedRightRows.hasNext();
                 }
 
                 return false;
@@ -171,131 +176,92 @@ public class JoinAction implements ActionExecutor {
 
             @Override
             public String[] next() {
-
                 if (!headerReturned) {
-                    String[] leftHeader = leftIt.next();
-
-                    for (int i = 0; i < leftHeader.length; i++) {
-                        if (leftHeader[i].equalsIgnoreCase(leftKey)) {
-                            leftKeyIdx = i;
-                            break;
+                    List<String> headerList = new ArrayList<>();
+                    Collections.addAll(headerList, leftHeader);
+                    if (rightHeader.length > 0) {
+                        for (int i = 0; i < rightHeader.length; i++) {
+                            if (i != rightKeyIdx) {
+                                headerList.add("right_" + rightHeader[i]);
+                            }
                         }
                     }
-                    if (leftKeyIdx == -1) {
-                        throw new RuntimeException("left_key not found in left dataset");
-                    }
-
-                    List<String> header = new ArrayList<>();
-                    Collections.addAll(header, leftHeader);
-
-                    for (int i = 0; i < rightHeader.length; i++) {
-                        if (i != rightKeyIdx) {
-                            header.add("right_" + rightHeader[i]);
-                        }
-                    }
-
                     headerReturned = true;
-                    return header.toArray(new String[0]);
+                    return headerList.toArray(new String[0]);
                 }
 
                 if (currentMatches != null && currentMatches.hasNext()) {
                     String[] rightRow = currentMatches.next();
-
-                    String[] joined =
-                            new String[currentLeftRow.length + rightRow.length - 1];
-
-                    System.arraycopy(currentLeftRow, 0, joined, 0, currentLeftRow.length);
-
-                    int idx = currentLeftRow.length;
-                    for (int i = 0; i < rightRow.length; i++) {
-                        if (i != rightKeyIdx) {
-                            joined[idx++] = rightRow[i];
-                        }
-                    }
-
-                    return joined;
+                    matchedRightRows.put(rightRow, true);
+                    return combineRows(currentLeftRow, rightRow);
+                }
+                
+                if (emitUnmatchedLeft) {
+                    emitUnmatchedLeft = false;
+                    return combineRows(currentLeftRow, null);
+                }
+                
+                if (unmatchedRightRows != null && unmatchedRightRows.hasNext()) {
+                    return combineRows(null, unmatchedRightRows.next());
                 }
 
-                while (leftIt.hasNext()) {
-                    currentLeftRow = leftIt.next();
-
-                    String key = currentLeftRow[leftKeyIdx];
-                    List<String[]> matches = rightData.get(key);
-
-                    if (matches != null && !matches.isEmpty()) {
-                        currentMatches = matches.iterator();
-                        return next(); 
-                    }
+                if (hasNext()) {
+                    return next();
                 }
 
                 throw new RuntimeException("No more elements");
             }
+            
+            private String[] combineRows(String[] lRow, String[] rRow) {
+                int leftLen = leftHeader.length;
+                int rightLen = rightHeader.length > 0 ? rightHeader.length - 1 : 0;
+                String[] joined = new String[leftLen + rightLen];
+                
+                for (int i = 0; i < leftLen; i++) {
+                    joined[i] = (lRow != null && i < lRow.length && lRow[i] != null) ? lRow[i] : "";
+                }
+                
+                int idx = leftLen;
+                for (int i = 0; i < rightHeader.length; i++) {
+                    if (i != rightKeyIdx) {
+                        joined[idx++] = (rRow != null && i < rRow.length && rRow[i] != null) ? rRow[i] : "";
+                    }
+                }
+                return joined;
+            }
         };
-
-        ctx.setIterator(joinedIt);
-        long duration = System.currentTimeMillis() - start;
-        logger.info("[JOIN][HASH] phase=complete durationMs=" + duration);
     }
 
-    private void executeSortMergeJoin(ExecutionContext ctx, String leftKey, String rightKey, DataIterator rightIt){
+    private DataIterator executeSortMergeJoin(ExecutionContext ctx, DataIterator leftIt, DataIterator rightIt,
+                                              String[] leftHeader, String[] rightHeader,
+                                              int leftKeyIdx, int rightKeyIdx) {
         try {
-            long totalStart = System.currentTimeMillis();
-
             logger.info("[JOIN][SMJ] phase=start");
 
-            DataIterator leftIt = ctx.getIterator();
-            String[] leftHeader = leftIt.next();
+            List<String> leftRuns = new ArrayList<>();
+            if (leftHeader.length > 0 && leftKeyIdx != -1) {
+                leftRuns = externalSortFromIterator(ctx, leftIt, leftKeyIdx);
+            }
 
-            int leftKeyIdx = findIndex(leftHeader, leftKey);
-
-            long leftSortStart = System.currentTimeMillis();
-            List<String> leftRuns = externalSortFromIterator(leftIt, leftKeyIdx);
-            long leftSortTime = System.currentTimeMillis() - leftSortStart;
-            logger.info("[JOIN][SMJ] phase=external_sort_left durationMs=" +
-                    leftSortTime + " runs=" + leftRuns.size());
-
-
-            String[] rightHeader = rightIt.next();
-
-            int rightKeyIdx = findIndex(rightHeader, rightKey);
-
-            long rightSortStart = System.currentTimeMillis();
-            List<String> rightRuns = externalSortFromIterator(rightIt, rightKeyIdx);
-            long rightSortTime = System.currentTimeMillis() - rightSortStart;
-
-            logger.info("[JOIN][SMJ] phase=external_sort_right durationMs=" +
-                    rightSortTime + " runs=" + rightRuns.size());
+            List<String> rightRuns = new ArrayList<>();
+            if (rightHeader.length > 0 && rightKeyIdx != -1) {
+                rightRuns = externalSortFromIterator(ctx, rightIt, rightKeyIdx);
+            }
 
             DataIterator sortedLeft = new MergeIterator(leftRuns, leftKeyIdx);
             DataIterator sortedRight = new MergeIterator(rightRuns, rightKeyIdx);
 
-            long totalEnd = System.currentTimeMillis();
-
-            logger.info("[JOIN][SMJ] phase=setup_complete durationMs=" +
-                    (totalEnd - totalStart));
-            ctx.setIterator(new SortMergeIterator(
-                    sortedLeft, sortedRight,
-                    leftHeader, rightHeader,
-                    leftKeyIdx, rightKeyIdx
-            ));
-
+            return new SortMergeIterator(sortedLeft, sortedRight, leftHeader, rightHeader, leftKeyIdx, rightKeyIdx);
         } catch (Exception e) {
-            logger.severe("[JOIN][SMJ] error=" + e.getMessage());
             throw new RuntimeException(e);
         }
     }
 
-
     class MergeIterator implements DataIterator {
-
         static class Entry {
             String[] row;
             int fileIdx;
-
-            Entry(String[] r, int f) {
-                row = r;
-                fileIdx = f;
-            }
+            Entry(String[] r, int f) { row = r; fileIdx = f; }
         }
 
         PriorityQueue<Entry> pq;
@@ -305,14 +271,11 @@ public class JoinAction implements ActionExecutor {
         MergeIterator(List<String> files, int keyIdx) {
             this.keyIdx = keyIdx;
             this.iterators = new ArrayList<>();
-            this.pq = new PriorityQueue<>(
-                    Comparator.comparing(e -> e.row[keyIdx])
-            );
+            this.pq = new PriorityQueue<>(Comparator.comparing(e -> e.row[keyIdx], JoinAction::compareKeys));
 
             for (int i = 0; i < files.size(); i++) {
                 DataIterator it = new CsvDataIterator(files.get(i));
                 iterators.add(it);
-
                 if (it.hasNext()) {
                     pq.add(new Entry(it.next(), i));
                 }
@@ -333,35 +296,25 @@ public class JoinAction implements ActionExecutor {
             if (it.hasNext()) {
                 pq.add(new Entry(it.next(), smallest.fileIdx));
             }
-
             return result;
         }
     }
 
     class SortMergeIterator implements DataIterator {
-
         DataIterator left;
         DataIterator right;
-
         String[] leftHeader;
         String[] rightHeader;
-
         int leftKeyIdx;
         int rightKeyIdx;
-
         boolean headerReturned = false;
-
         String[] leftRow = null;
         String[] rightRow = null;
-
         Queue<String[]> buffer = new ArrayDeque<>();
 
-        SortMergeIterator(DataIterator left,
-                          DataIterator right,
-                          String[] leftHeader,
-                          String[] rightHeader,
-                          int leftKeyIdx,
-                          int rightKeyIdx) {
+        SortMergeIterator(DataIterator left, DataIterator right,
+                          String[] leftHeader, String[] rightHeader,
+                          int leftKeyIdx, int rightKeyIdx) {
             this.left = left;
             this.right = right;
             this.leftHeader = leftHeader;
@@ -379,48 +332,42 @@ public class JoinAction implements ActionExecutor {
             if (!buffer.isEmpty()) return true;
 
             while (leftRow != null && rightRow != null) {
+                if (leftKeyIdx >= leftRow.length) { advanceLeft(); continue; }
+                if (rightKeyIdx >= rightRow.length) { advanceRight(); continue; }
 
                 String lVal = leftRow[leftKeyIdx];
                 String rVal = rightRow[rightKeyIdx];
-
-                int cmp = lVal.compareTo(rVal);
+                int cmp = compareKeys(lVal, rVal);
 
                 if (cmp < 0) {
                     advanceLeft();
                 } else if (cmp > 0) {
                     advanceRight();
                 } else {
-
                     List<String[]> leftGroup = new ArrayList<>();
                     List<String[]> rightGroup = new ArrayList<>();
-
                     String key = lVal;
 
-                    while (leftRow != null && leftRow[leftKeyIdx].equals(key)) {
+                    while (leftRow != null && leftKeyIdx < leftRow.length && leftRow[leftKeyIdx].equals(key)) {
                         leftGroup.add(leftRow);
                         advanceLeft();
                     }
 
-                    while (rightRow != null && rightRow[rightKeyIdx].equals(key)) {
+                    while (rightRow != null && rightKeyIdx < rightRow.length && rightRow[rightKeyIdx].equals(key)) {
                         rightGroup.add(rightRow);
                         advanceRight();
                     }
 
                     for (String[] l : leftGroup) {
                         for (String[] r : rightGroup) {
-
-                            String[] joined =
-                                    new String[l.length + r.length - 1];
-
+                            String[] joined = new String[l.length + r.length - 1];
                             System.arraycopy(l, 0, joined, 0, l.length);
-
                             int idx = l.length;
                             for (int i = 0; i < r.length; i++) {
                                 if (i != rightKeyIdx) {
                                     joined[idx++] = r[i];
                                 }
                             }
-
                             buffer.add(joined);
                         }
                     }
@@ -428,7 +375,6 @@ public class JoinAction implements ActionExecutor {
                     if (!buffer.isEmpty()) return true;
                 }
             }
-
             return false;
         }
 
@@ -442,50 +388,86 @@ public class JoinAction implements ActionExecutor {
 
         @Override
         public String[] next() {
-
             if (!headerReturned) {
                 headerReturned = true;
-
                 List<String> headerList = new ArrayList<>();
                 Collections.addAll(headerList, leftHeader);
-
-                for (int i = 0; i < rightHeader.length; i++) {
-                    if (i != rightKeyIdx) {
-                        headerList.add("right_" + rightHeader[i]);
+                if (rightHeader.length > 0) {
+                    for (int i = 0; i < rightHeader.length; i++) {
+                        if (i != rightKeyIdx) {
+                            headerList.add("right_" + rightHeader[i]);
+                        }
                     }
                 }
-
                 return headerList.toArray(new String[0]);
             }
 
             if (!buffer.isEmpty()) {
                 return buffer.poll();
             }
-
             if (hasNext()) {
                 return buffer.poll();
             }
-
             throw new RuntimeException("No more elements");
         }
     }
 
-    private List<String> externalSortFromIterator(DataIterator it, int keyIdx) throws Exception {
-        final int CHUNK_SIZE = 50_000;
+    class CleanupIterator implements DataIterator {
+        private final DataIterator delegate;
+        private final ExecutionContext ctx;
+        private boolean cleanupDone = false;
 
+        public CleanupIterator(DataIterator delegate, ExecutionContext ctx) {
+            this.delegate = delegate;
+            this.ctx = ctx;
+        }
+
+        private void performCleanup() {
+            if (!cleanupDone) {
+                ctx.cleanup();
+                cleanupDone = true;
+            }
+        }
+
+        @Override
+        public boolean hasNext() {
+            boolean has = delegate.hasNext();
+            if (!has) {
+                performCleanup();
+            }
+            return has;
+        }
+
+        @Override
+        public String[] next() {
+            try {
+                return delegate.next();
+            } catch (Exception e) {
+                performCleanup();
+                throw e;
+            }
+        }
+    }
+
+    private List<String> externalSortFromIterator(ExecutionContext ctx, DataIterator it, int keyIdx) throws Exception {
+        final int CHUNK_SIZE = 50_000;
         List<String> tempFiles = new ArrayList<>();
 
         while (it.hasNext()) {
             List<String[]> chunk = new ArrayList<>();
-
             for (int i = 0; i < CHUNK_SIZE && it.hasNext(); i++) {
-                chunk.add(it.next());
+                String[] row = it.next();
+                if (row.length > keyIdx) {
+                    chunk.add(row);
+                }
             }
 
-            chunk.sort(Comparator.comparing(row -> row[keyIdx]));
+            if (chunk.isEmpty()) continue;
 
+            chunk.sort(Comparator.comparing(row -> row[keyIdx], JoinAction::compareKeys));
             String tempFile = "/tmp/sort_" + UUID.randomUUID() + ".csv";
             tempFiles.add(tempFile);
+            ctx.registerTempFile(tempFile);
 
             try (java.io.PrintWriter pw = new java.io.PrintWriter(tempFile)) {
                 for (String[] row : chunk) {
@@ -493,8 +475,15 @@ public class JoinAction implements ActionExecutor {
                 }
             }
         }
-
         return tempFiles;
+    }
+
+    private static int compareKeys(String a, String b) {
+        try {
+            return Double.compare(Double.parseDouble(a), Double.parseDouble(b));
+        } catch (NumberFormatException e) {
+            return a.compareTo(b);
+        }
     }
 
     private int findIndex(String[] header, String key) {
@@ -503,7 +492,7 @@ public class JoinAction implements ActionExecutor {
                 return i;
             }
         }
-        throw new RuntimeException("Key not found: " + key);
+        throw new RuntimeException("Missing join key: " + key);
     }
 
     @Override
