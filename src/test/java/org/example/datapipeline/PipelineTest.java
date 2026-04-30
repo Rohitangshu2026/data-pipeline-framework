@@ -67,7 +67,7 @@ public class PipelineTest {
         // header + 1 row expected
         assertTrue(metaRows.size() >= 2);
 
-        double maxValue = Double.parseDouble(metaRows.get(1)[1]);
+        double maxValue = Double.parseDouble(metaRows.get(1)[0]);
         assertEquals(1800.0, maxValue, 0.001);
     }
 
