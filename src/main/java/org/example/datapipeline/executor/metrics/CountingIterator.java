@@ -26,4 +26,11 @@ public class CountingIterator implements DataIterator {
     public long getCount() {
         return count;
     }
+
+    @Override
+    public void close() {
+        try {
+            inner.close();
+        } catch (Exception ignored) {}
+    }
 }

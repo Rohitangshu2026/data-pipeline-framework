@@ -3,6 +3,10 @@ package org.example.datapipeline.executor.iterator;
 
 import java.io.BufferedReader;
 import java.io.FileReader;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Provides a streaming iterator over rows of a CSV file.
@@ -21,14 +25,15 @@ import java.io.FileReader;
  * This class serves as the primary data source for streaming-based
  * pipeline execution.
  */
-public class CsvDataIterator implements DataIterator {
+public class CsvDataIterator implements DataIterator, AutoCloseable {
 
     private BufferedReader reader;
     private String nextLine;
 
     public CsvDataIterator(String path) {
         try {
-            reader = new BufferedReader(new FileReader(path));
+            reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(path), StandardCharsets.UTF_8));
             nextLine = reader.readLine();
         } catch (Exception e) {
             throw new RuntimeException("Failed to open file: " + path, e);
@@ -37,7 +42,16 @@ public class CsvDataIterator implements DataIterator {
 
     @Override
     public boolean hasNext() {
-        return nextLine != null;
+        if (nextLine != null) return true;
+        close();
+        return false;
+    }
+
+    @Override
+    public void close() {
+        try {
+            if (reader != null) { reader.close(); reader = null; }
+        } catch (IOException ignored) {}
     }
 
     @Override
@@ -46,11 +60,10 @@ public class CsvDataIterator implements DataIterator {
             if (nextLine == null) {
                 throw new RuntimeException("CsvDataIterator next called when hasNext is false");
             }
-            // Use -1 to prevent dropping trailing empty string columns
             String[] row = nextLine.split(",", -1);
-            nextLine = reader.readLine();
+            nextLine = (reader != null) ? reader.readLine() : null;
             return row;
-        } catch (Exception e) {
+        } catch (IOException e) {
             throw new RuntimeException("Error reading CSV", e);
         }
     }
