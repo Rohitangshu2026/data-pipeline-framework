@@ -1,0 +1,663 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="cep-fraud-detection">
+
+    <!--
+        ╔══════════════════════════════════════════════════════════════════╗
+        ║   CEP-STYLE FRAUD DETECTION PIPELINE  —  November 2019          ║
+        ╠══════════════════════════════════════════════════════════════════╣
+        ║                                                                  ║
+        ║  This pipeline simulates Complex Event Processing (CEP) using   ║
+        ║  the framework's streaming iterator + batch-DAG execution model. ║
+        ║                                                                  ║
+        ║  CEP MODEL MAPPING                                               ║
+        ║  ─────────────────                                               ║
+        ║  True CEP concept     → Framework implementation                 ║
+        ║  ──────────────────────────────────────────────────              ║
+        ║  Event stream         → 2019-Nov.csv (67M rows)                 ║
+        ║  Session window       → GROUP BY user_session (aggregate stages) ║
+        ║  Pattern extraction   → 5 parallel signal aggregations          ║
+        ║  Signal correlation   → 4 sequential hash joins                  ║
+        ║  Composite signals    → derive (price_range, velocity_risk)      ║
+        ║  Risk scoring         → normalize + scale + map (0-100 pts)     ║
+        ║  Rule evaluation      → filter (COUNT ≥ 3 in session window)    ║
+        ║  Alert ranking        → sort (desc) + limit (top 50)            ║
+        ║  Action trigger       → bash: cep_fraud_alert.sh               ║
+        ║                                                                  ║
+        ║  FRAUD SIGNALS DETECTED                                          ║
+        ║  ──────────────────────                                          ║
+        ║  1. Velocity burst    — 3+ purchases within one session          ║
+        ║  2. Exposure spike    — high total spend in one session          ║
+        ║  3. Price spread      — wide min→max range (card-test pattern)  ║
+        ║  4. Composite risk    — velocity × avg transaction value         ║
+        ║                                                                  ║
+        ║  Input  : src/main/resources/input/2019-Nov.csv                 ║
+        ║  Output : target/cep_fraud/fraud_report.txt                      ║
+        ║                                                                  ║
+        ║  DAG (topological levels):                                       ║
+        ║  L0  ingest_stream         67M events → purchase rows           ║
+        ║  L1  cleanse_stream        quality + enrich (5 chained tasks)   ║
+        ║  L2  window_velocity  ─┐                                         ║
+        ║      window_exposure  ─┤  5 parallel session-window signals     ║
+        ║      window_avg_tx    ─┤  (CEP: temporal aggregation)           ║
+        ║      window_max_tx    ─┤  on_error=retry×2                      ║
+        ║      window_min_tx    ─┘  on_error=proceed                      ║
+        ║  L3  correlate_vel_exp     join velocity + exposure              ║
+        ║  L4  correlate_add_avg     join + avg signal                    ║
+        ║  L5  correlate_add_max     join + max signal                    ║
+        ║  L6  correlate_add_min     join + min signal                    ║
+        ║  L7  extract_patterns      derive composite fraud signals        ║
+        ║  L8  score_risk            normalize + scale + map 0-100        ║
+        ║  L9  evaluate_rules        CEP rule: COUNT≥3 → filter+rank       ║
+        ║  L10 trigger_alert         bash action = alert report            ║
+        ╚══════════════════════════════════════════════════════════════════╝
+    -->
+
+    <!-- ═══════════════════════ DATASOURCES ═══════════════════════ -->
+    <datasources>
+
+        <!-- ── Source event stream ── -->
+        <datasource id="raw_events" type="csv">
+            <param name="src" value="src/main/resources/input/2019-Nov.csv"/>
+        </datasource>
+
+        <!-- ── Ingest + cleanse outputs ── -->
+        <datasource id="ds_purchases_raw" type="csv">
+            <param name="src" value="target/cep_fraud/purchases_raw.csv"/>
+        </datasource>
+        <datasource id="ds_purchases_clean" type="csv">
+            <param name="src" value="target/cep_fraud/purchases_clean.csv"/>
+        </datasource>
+
+        <!-- ── Session-window signal files (one per aggregation) ── -->
+        <datasource id="ds_velocity" type="csv">
+            <!-- COUNT(purchase) per session → velocity signal -->
+            <param name="src" value="target/cep_fraud/window_velocity.csv"/>
+        </datasource>
+        <datasource id="ds_exposure" type="csv">
+            <!-- SUM(price) per session → financial exposure signal -->
+            <param name="src" value="target/cep_fraud/window_exposure.csv"/>
+        </datasource>
+        <datasource id="ds_avg_tx" type="csv">
+            <!-- AVG(price) per session → baseline transaction signal -->
+            <param name="src" value="target/cep_fraud/window_avg_tx.csv"/>
+        </datasource>
+        <datasource id="ds_max_tx" type="csv">
+            <!-- MAX(price) per session → largest single transaction signal -->
+            <param name="src" value="target/cep_fraud/window_max_tx.csv"/>
+        </datasource>
+        <datasource id="ds_min_tx" type="csv">
+            <!-- MIN(price) per session → probe transaction signal (card testing) -->
+            <param name="src" value="target/cep_fraud/window_min_tx.csv"/>
+        </datasource>
+
+        <!-- ── Correlated session profile (built by 4 sequential joins) ── -->
+        <datasource id="ds_corr1" type="csv">
+            <param name="src" value="target/cep_fraud/corr1_vel_exp.csv"/>
+        </datasource>
+        <datasource id="ds_corr2" type="csv">
+            <param name="src" value="target/cep_fraud/corr2_with_avg.csv"/>
+        </datasource>
+        <datasource id="ds_corr3" type="csv">
+            <param name="src" value="target/cep_fraud/corr3_with_max.csv"/>
+        </datasource>
+        <datasource id="ds_session_profile" type="csv">
+            <!-- Full session profile: [user_session, count, sum, avg, max, min] -->
+            <param name="src" value="target/cep_fraud/session_profile.csv"/>
+        </datasource>
+
+        <!-- ── Pattern extraction output ── -->
+        <datasource id="ds_session_signals" type="csv">
+            <!-- + price_range, velocity_risk derived columns -->
+            <param name="src" value="target/cep_fraud/session_signals.csv"/>
+        </datasource>
+
+        <!-- ── Risk scoring output ── -->
+        <datasource id="ds_session_scored" type="csv">
+            <!-- velocity_risk → [0,100]  |  price_range → z-score -->
+            <param name="src" value="target/cep_fraud/session_scored.csv"/>
+        </datasource>
+
+        <!-- ── Alert outputs ── -->
+        <datasource id="ds_fraud_alerts" type="csv">
+            <!-- Top 50 flagged sessions after rule evaluation -->
+            <param name="src" value="target/cep_fraud/fraud_alerts.csv"/>
+        </datasource>
+        <datasource id="ds_report" type="csv">
+            <!-- Plain-text fraud alert report -->
+            <param name="src" value="target/cep_fraud/fraud_report.txt"/>
+        </datasource>
+
+    </datasources>
+
+    <!-- ═══════════════════════ STAGE L0 ═══════════════════════
+         INGEST STREAM
+         ─────────────
+         CEP equivalent: Event source / stream ingestion.
+         Filters the 67M raw event log down to purchase events only —
+         the "event type of interest" for fraud analysis.
+         Streams row-by-row via iterator: zero heap pressure.
+    -->
+    <stage id="ingest_stream">
+        <task>
+            <input ref="raw_events"/>
+            <action type="transform">
+                <method name="filter">
+                    <param name="column"   value="event_type"/>
+                    <param name="operator" value="="/>
+                    <param name="value"    value="purchase"/>
+                </method>
+            </action>
+            <output ref="ds_purchases_raw"/>
+        </task>
+    </stage>
+
+    <!-- ═══════════════════════ STAGE L1 ═══════════════════════
+         CLEANSE STREAM
+         ──────────────
+         CEP equivalent: Event pre-processing / normalisation.
+         Five chained data-quality tasks applied sequentially to the
+         purchase stream before any pattern analysis begins.
+
+         Task 1 : fill_nulls  user_session → "anon-{unknown}" sentinel
+                  CEP: events without a session key can't be windowed;
+                  assigning a sentinel lets them fall into their own group.
+
+         Task 2 : fill_nulls  brand → "UNKNOWN"
+                  Brand is used in downstream analysis; impute rather than drop.
+
+         Task 3 : drop_nulls  price, user_id
+                  Events with no price or user are unactionable — discard.
+
+         Task 4 : map  price × 0.92  (USD → EUR)
+                  Normalise currency before aggregating monetary signals.
+
+         Task 5 : select  user_id, user_session, brand, price, product_id
+                  Project to only the five columns needed for fraud analysis.
+                  Dropping event_time, category_id, etc. halves row width.
+    -->
+    <stage id="cleanse_stream" pre_req="ingest_stream">
+
+        <!-- Task 1: impute missing session IDs -->
+        <task>
+            <input ref="ds_purchases_raw"/>
+            <action type="transform">
+                <method name="fill_nulls">
+                    <param name="column" value="user_session"/>
+                    <param name="value"  value="anon-unknown"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/cep_fraud/c1_session_filled.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 2: impute missing brand -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/cep_fraud/c1_session_filled.csv"/>
+            </input>
+            <action type="transform">
+                <method name="fill_nulls">
+                    <param name="column" value="brand"/>
+                    <param name="value"  value="UNKNOWN"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/cep_fraud/c2_brand_filled.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 3: drop events with no price or user -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/cep_fraud/c2_brand_filled.csv"/>
+            </input>
+            <action type="transform">
+                <method name="drop_nulls">
+                    <param name="columns" value="price,user_id"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/cep_fraud/c3_dropped.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 4: currency normalisation USD → EUR -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/cep_fraud/c3_dropped.csv"/>
+            </input>
+            <action type="transform">
+                <method name="map">
+                    <param name="column"    value="price"/>
+                    <param name="operation" value="multiply"/>
+                    <param name="value"     value="0.92"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/cep_fraud/c4_eur.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 5: project to fraud-analysis columns only -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/cep_fraud/c4_eur.csv"/>
+            </input>
+            <action type="transform">
+                <method name="select">
+                    <param name="columns" value="user_id,user_session,brand,price,product_id"/>
+                </method>
+            </action>
+            <output ref="ds_purchases_clean"/>
+        </task>
+
+    </stage>
+
+    <!-- ═══════════════════════ STAGES L2 ═══════════════════════
+         SESSION-WINDOW SIGNAL EXTRACTION  (5 stages in PARALLEL)
+         ──────────────────────────────────────────────────────────
+         CEP equivalent: Temporal aggregation within session windows.
+
+         Each stage reads the same cleaned purchase stream and computes
+         a different statistical signal per user_session.  All five fire
+         simultaneously at DAG level 2 — demonstrating parallel CEP
+         window evaluation.
+
+         Signals produced:
+           window_velocity  → COUNT(product_id) per session  = transaction frequency
+           window_exposure  → SUM(price)        per session  = financial exposure
+           window_avg_tx    → AVG(price)        per session  = baseline transaction value
+           window_max_tx    → MAX(price)        per session  = largest suspicious purchase
+           window_min_tx    → MIN(price)        per session  = probe/card-test transaction
+
+         Error handling:
+           window_max_tx: on_error=retry (retry_count=2) — max is critical for
+                          detecting high-value fraud; retry before giving up.
+           window_min_tx: on_error=proceed — min signal is supplementary;
+                          pipeline continues even if this stage fails.
+    -->
+
+    <!-- SIGNAL 1: Velocity — how many purchases in this session? -->
+    <stage id="window_velocity" pre_req="cleanse_stream">
+        <task>
+            <input ref="ds_purchases_clean"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="user_session"/>
+                    <param name="operation" value="count"/>
+                    <param name="column"    value="product_id"/>
+                </method>
+            </action>
+            <output ref="ds_velocity"/>
+        </task>
+    </stage>
+
+    <!-- SIGNAL 2: Exposure — total money at risk per session -->
+    <stage id="window_exposure" pre_req="cleanse_stream">
+        <task>
+            <input ref="ds_purchases_clean"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="user_session"/>
+                    <param name="operation" value="sum"/>
+                    <param name="column"    value="price"/>
+                </method>
+            </action>
+            <output ref="ds_exposure"/>
+        </task>
+    </stage>
+
+    <!-- SIGNAL 3: Avg transaction — baseline value per purchase in session -->
+    <stage id="window_avg_tx" pre_req="cleanse_stream">
+        <task>
+            <input ref="ds_purchases_clean"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="user_session"/>
+                    <param name="operation" value="avg"/>
+                    <param name="column"    value="price"/>
+                </method>
+            </action>
+            <output ref="ds_avg_tx"/>
+        </task>
+    </stage>
+
+    <!-- SIGNAL 4: Max transaction — highest single purchase (retry if fails) -->
+    <stage id="window_max_tx" pre_req="cleanse_stream">
+        <on_error handling_strategy="retry" retry_count="2"/>
+        <task>
+            <input ref="ds_purchases_clean"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="user_session"/>
+                    <param name="operation" value="max"/>
+                    <param name="column"    value="price"/>
+                </method>
+            </action>
+            <output ref="ds_max_tx"/>
+        </task>
+    </stage>
+
+    <!-- SIGNAL 5: Min transaction — probe purchase amount (proceed if fails) -->
+    <stage id="window_min_tx" pre_req="cleanse_stream">
+        <on_error handling_strategy="proceed"/>
+        <task>
+            <input ref="ds_purchases_clean"/>
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by"  value="user_session"/>
+                    <param name="operation" value="min"/>
+                    <param name="column"    value="price"/>
+                </method>
+            </action>
+            <output ref="ds_min_tx"/>
+        </task>
+    </stage>
+
+    <!-- ═══════════════════════ STAGES L3–L6 ═══════════════════════
+         SIGNAL CORRELATION  (4 sequential joins)
+         ─────────────────────────────────────────
+         CEP equivalent: Multi-stream correlation / event joining.
+         Each join merges one signal stream into the growing session
+         profile, keyed on user_session.
+
+         After all four joins the session profile contains:
+           [user_session,            ← session key (window identifier)
+            count_product_id,        ← velocity signal (Signal 1)
+            right_sum_price,         ← exposure signal (Signal 2)
+            right_avg_price,         ← baseline signal (Signal 3)
+            right_max_price,         ← max-tx  signal (Signal 4)
+            right_min_price]         ← min-tx  signal (Signal 5)
+
+         All joins use hash strategy (right side ≤ few hundred thousand
+         rows — well below sort-merge threshold of 100K).
+    -->
+
+    <!-- L3: correlate velocity (count) with exposure (sum) -->
+    <stage id="correlate_vel_exp" pre_req="window_velocity window_exposure">
+        <task>
+            <input ref="ds_velocity"/>
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key"  value="user_session"/>
+                    <param name="right_key" value="user_session"/>
+                    <param name="right_ref" value="ds_exposure"/>
+                </method>
+            </action>
+            <output ref="ds_corr1"/>
+        </task>
+        <!-- Output: [user_session, count_product_id, right_sum_price] -->
+    </stage>
+
+    <!-- L4: add avg-transaction signal -->
+    <stage id="correlate_add_avg" pre_req="correlate_vel_exp window_avg_tx">
+        <task>
+            <input ref="ds_corr1"/>
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key"  value="user_session"/>
+                    <param name="right_key" value="user_session"/>
+                    <param name="right_ref" value="ds_avg_tx"/>
+                </method>
+            </action>
+            <output ref="ds_corr2"/>
+        </task>
+        <!-- Output: [user_session, count_product_id, right_sum_price, right_avg_price] -->
+    </stage>
+
+    <!-- L5: add max-transaction signal -->
+    <stage id="correlate_add_max" pre_req="correlate_add_avg window_max_tx">
+        <task>
+            <input ref="ds_corr2"/>
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key"  value="user_session"/>
+                    <param name="right_key" value="user_session"/>
+                    <param name="right_ref" value="ds_max_tx"/>
+                </method>
+            </action>
+            <output ref="ds_corr3"/>
+        </task>
+        <!-- Output: [user_session, count_product_id, right_sum_price, right_avg_price,
+                      right_max_price] -->
+    </stage>
+
+    <!-- L6: add min-transaction signal — completing the session profile -->
+    <stage id="correlate_add_min" pre_req="correlate_add_max window_min_tx">
+        <task>
+            <input ref="ds_corr3"/>
+            <action type="join">
+                <method name="inner">
+                    <param name="left_key"  value="user_session"/>
+                    <param name="right_key" value="user_session"/>
+                    <param name="right_ref" value="ds_min_tx"/>
+                </method>
+            </action>
+            <output ref="ds_session_profile"/>
+        </task>
+        <!-- Output: [user_session, count_product_id, right_sum_price, right_avg_price,
+                      right_max_price, right_min_price] -->
+    </stage>
+
+    <!-- ═══════════════════════ STAGE L7 ═══════════════════════
+         PATTERN EXTRACTION  (2 chained derive tasks)
+         ─────────────────────────────────────────────
+         CEP equivalent: Composite pattern / complex event derivation.
+         Two new fraud-signal columns are computed from the correlated
+         session profile using the RPN formula engine.
+
+         Task 1 — price_range  = right_max_price - right_min_price
+           The spread between the most expensive and cheapest purchase
+           within a single session.  A legitimate shopper browsing one
+           price band will have a small range.  A card-testing attacker
+           typically makes one tiny "probe" purchase then a large one —
+           yielding an abnormally wide range.
+
+         Task 2 — velocity_risk  = count_product_id * right_avg_price
+           Composite signal: transaction frequency × average value.
+           High count × high avg = high-value burst → strong fraud signal.
+           Low count × high avg = fewer but expensive purchases → different
+           risk profile captured separately by right_sum_price.
+
+         NOTE: sum_price and avg_price are still raw EUR at this point.
+         They are normalised/scaled in the next stage.
+    -->
+    <stage id="extract_patterns" pre_req="correlate_add_min">
+
+        <!-- Task 1: price range = max - min within session (card-test detector) -->
+        <task>
+            <input ref="ds_session_profile"/>
+            <action type="transform">
+                <method name="derive">
+                    <param name="new_column" value="price_range"/>
+                    <param name="formula"    value="right_max_price - right_min_price"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/cep_fraud/p1_with_range.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 2: velocity risk = frequency × avg value (burst composite signal) -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/cep_fraud/p1_with_range.csv"/>
+            </input>
+            <action type="transform">
+                <method name="derive">
+                    <param name="new_column" value="velocity_risk"/>
+                    <param name="formula"    value="count_product_id * right_avg_price"/>
+                </method>
+            </action>
+            <output ref="ds_session_signals"/>
+        </task>
+        <!-- Final: [user_session, count_product_id, right_sum_price, right_avg_price,
+                     right_max_price, right_min_price, price_range, velocity_risk] -->
+
+    </stage>
+
+    <!-- ═══════════════════════ STAGE L8 ═══════════════════════
+         RISK SCORING  (3 chained tasks)
+         ─────────────────────────────────
+         CEP equivalent: Event scoring / threat-level computation.
+
+         Task 1 — normalize(velocity_risk)
+           Min-max scales velocity_risk across all sessions to [0, 1].
+           Enables fair comparison: the session with the absolute highest
+           frequency×value composite gets score 1.0; all others are
+           relative to it.
+
+         Task 2 — scale(price_range)
+           Z-score standardises the price-range signal (mean=0, σ=1).
+           Sessions with an unusually wide price range (card-test pattern)
+           will have z-score > 2; normal shoppers cluster around 0.
+
+         Task 3 — map(velocity_risk, multiply, 100)
+           Converts the normalised [0,1] risk score into human-readable
+           risk points [0, 100].  Makes the alert report intuitive:
+           "Session X scored 78/100" vs. "Session X scored 0.78".
+    -->
+    <stage id="score_risk" pre_req="extract_patterns">
+
+        <!-- Task 1: min-max normalise the composite risk signal -->
+        <task>
+            <input ref="ds_session_signals"/>
+            <action type="transform">
+                <method name="normalize">
+                    <param name="column" value="velocity_risk"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/cep_fraud/s1_risk_normalised.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 2: z-score the price-range spread signal -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/cep_fraud/s1_risk_normalised.csv"/>
+            </input>
+            <action type="transform">
+                <method name="scale">
+                    <param name="column" value="price_range"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/cep_fraud/s2_range_scaled.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 3: convert [0,1] risk score to 0–100 risk points -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/cep_fraud/s2_range_scaled.csv"/>
+            </input>
+            <action type="transform">
+                <method name="map">
+                    <param name="column"    value="velocity_risk"/>
+                    <param name="operation" value="multiply"/>
+                    <param name="value"     value="100"/>
+                </method>
+            </action>
+            <output ref="ds_session_scored"/>
+        </task>
+
+    </stage>
+
+    <!-- ═══════════════════════ STAGE L9 ═══════════════════════
+         RULE EVALUATION  (3 chained tasks)
+         ─────────────────────────────────────
+         CEP equivalent: Pattern match / rule firing / alert generation.
+
+         This is the core CEP rule engine stage.  Each task evaluates
+         one condition and passes matching events downstream.
+
+         Task 1 — filter(count_product_id >= 3)
+           CEP RULE: "FIRE alert if COUNT(purchase_event) ≥ 3
+                       within session_window"
+           A session with 3 or more purchases is statistically anomalous
+           and warrants investigation.  This is the primary velocity rule.
+
+         Task 2 — sort(velocity_risk, desc)
+           Rank the flagged sessions by risk score descending so the
+           highest-risk alerts appear first in the report.
+
+         Task 3 — limit(50)
+           Retain the top 50 highest-risk flagged sessions.
+           In a real CEP system this would be the alert queue depth.
+    -->
+    <stage id="evaluate_rules" pre_req="score_risk">
+
+        <!-- Task 1: CEP rule — flag sessions with purchase velocity ≥ 3 -->
+        <task>
+            <input ref="ds_session_scored"/>
+            <action type="transform">
+                <method name="filter">
+                    <param name="column"   value="count_product_id"/>
+                    <param name="operator" value=">="/>
+                    <param name="value"    value="3"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/cep_fraud/r1_rule_fired.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 2: rank alerts by risk score (highest first) -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/cep_fraud/r1_rule_fired.csv"/>
+            </input>
+            <action type="transform">
+                <method name="sort">
+                    <param name="column" value="velocity_risk"/>
+                    <param name="order"  value="desc"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="target/cep_fraud/r2_ranked.csv"/>
+            </output>
+        </task>
+
+        <!-- Task 3: cap alert queue at top 50 -->
+        <task>
+            <input type="csv">
+                <param name="src" value="target/cep_fraud/r2_ranked.csv"/>
+            </input>
+            <action type="transform">
+                <method name="limit">
+                    <param name="count" value="50"/>
+                </method>
+            </action>
+            <output ref="ds_fraud_alerts"/>
+        </task>
+
+    </stage>
+
+    <!-- ═══════════════════════ STAGE L10 ═══════════════════════
+         TRIGGER ALERT  (bash action = action trigger)
+         ─────────────────────────────────────────────
+         CEP equivalent: Action / consequence / downstream trigger.
+         In a production CEP system this stage would publish to a
+         Kafka topic, call a fraud-review webhook, or page on-call.
+         Here it renders a structured fraud alert report and prints
+         a terminal alert with colour-coded risk levels.
+
+         The bash script receives:
+           $1 = fraud_alerts.csv  (flagged sessions, scored)
+           $2 = fraud_report.txt  (output file)
+    -->
+    <stage id="trigger_alert" pre_req="evaluate_rules">
+        <task>
+            <input ref="ds_fraud_alerts"/>
+            <action type="bash">
+                <method name="run">
+                    <param name="script" value="src/main/resources/scripts/cep_fraud_alert.sh"/>
+                </method>
+            </action>
+            <output ref="ds_report"/>
+        </task>
+    </stage>
+
+</job>
