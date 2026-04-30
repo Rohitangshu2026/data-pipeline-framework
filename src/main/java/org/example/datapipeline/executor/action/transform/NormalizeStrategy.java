@@ -22,8 +22,8 @@ public class NormalizeStrategy implements TransformStrategy {
             boolean headerProcessed = false;
             String[] header;
             List<String[]> rows;
-            double min = Double.MAX_VALUE;
-            double max = Double.MIN_VALUE;
+            double min = Double.POSITIVE_INFINITY;
+            double max = Double.NEGATIVE_INFINITY;
             int colIndex = -1;
             int index = 0;
 

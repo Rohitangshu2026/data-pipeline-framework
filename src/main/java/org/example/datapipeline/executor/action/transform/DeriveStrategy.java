@@ -58,27 +58,107 @@ public class DeriveStrategy implements TransformStrategy {
     }
 
     private double evaluateFormula(String formula, String[] row, Map<String, Integer> colIndexMap) {
-        String padded = formula.replace("+", " + ")
-                               .replace("-", " - ")
-                               .replace("*", " * ")
-                               .replace("/", " / ");
-        String[] tokens = padded.trim().split("\\s+");
-        if (tokens.length == 0) return 0;
+        List<String> tokens = tokenize(formula);
+        List<String> rpn = toRPN(tokens);
+        return evalRPN(rpn, row, colIndexMap);
+    }
 
-        double result = getValue(tokens[0], row, colIndexMap);
+    private List<String> tokenize(String expr) {
+        List<String> tokens = new ArrayList<>();
+        StringBuilder num = new StringBuilder();
 
-        for (int i = 1; i < tokens.length - 1; i += 2) {
-            String op = tokens[i];
-            double nextVal = getValue(tokens[i+1], row, colIndexMap);
-            switch (op) {
-                case "+" -> result += nextVal;
-                case "-" -> result -= nextVal;
-                case "*" -> result *= nextVal;
-                case "/" -> result /= nextVal;
-                default -> throw new RuntimeException("Unknown operator: " + op);
+        for (char c : expr.toCharArray()) {
+            if (Character.isWhitespace(c)) continue;
+
+            if (Character.isLetterOrDigit(c) || c == '.' || c == '_') {
+                num.append(c);
+            } else {
+                if (num.length() > 0) {
+                    tokens.add(num.toString());
+                    num.setLength(0);
+                }
+                tokens.add(String.valueOf(c));
             }
         }
-        return result;
+
+        if (num.length() > 0) {
+            tokens.add(num.toString());
+        }
+
+        return tokens;
+    }
+
+    private List<String> toRPN(List<String> tokens) {
+        List<String> output = new ArrayList<>();
+        Stack<String> ops = new Stack<>();
+
+        Map<String, Integer> prec = Map.of(
+                "+", 1,
+                "-", 1,
+                "*", 2,
+                "/", 2
+        );
+
+        for (String token : tokens) {
+
+            if (isNumberOrColumn(token)) {
+                output.add(token);
+            }
+
+            else if ("+-*/".contains(token)) {
+                while (!ops.isEmpty() && !ops.peek().equals("(") &&
+                        prec.getOrDefault(ops.peek(), 0) >= prec.get(token)) {
+                    output.add(ops.pop());
+                }
+                ops.push(token);
+            }
+
+            else if (token.equals("(")) {
+                ops.push(token);
+            }
+
+            else if (token.equals(")")) {
+                while (!ops.isEmpty() && !ops.peek().equals("(")) {
+                    output.add(ops.pop());
+                }
+                ops.pop(); // remove "("
+            }
+        }
+
+        while (!ops.isEmpty()) {
+            output.add(ops.pop());
+        }
+
+        return output;
+    }
+
+    private double evalRPN(List<String> rpn, String[] row, Map<String, Integer> colIndexMap) {
+        Stack<Double> stack = new Stack<>();
+
+        for (String token : rpn) {
+
+            if ("+-*/".contains(token)) {
+                double b = stack.pop();
+                double a = stack.pop();
+
+                switch (token) {
+                    case "+" -> stack.push(a + b);
+                    case "-" -> stack.push(a - b);
+                    case "*" -> stack.push(a * b);
+                    case "/" -> stack.push(a / b);
+                }
+            } else {
+                stack.push(getValue(token, row, colIndexMap));
+            }
+        }
+
+        return stack.pop();
+    }
+
+    private boolean isNumberOrColumn(String token) {
+        return !(token.equals("+") || token.equals("-") ||
+                token.equals("*") || token.equals("/") ||
+                token.equals("(") || token.equals(")"));
     }
 
     private double getValue(String token, String[] row, Map<String, Integer> colIndexMap) {

@@ -159,9 +159,17 @@ public class AggregateStrategy implements TransformStrategy {
                 Map.Entry<String, AggregateState> entry = iterator.next();
                 double result = entry.getValue().compute(operation);
 
+                String outputValue;
+
+                if (operation.equalsIgnoreCase("count")) {
+                    outputValue = String.valueOf((int) result);
+                } else {
+                    outputValue = String.valueOf(result);
+                }
+
                 return new String[]{
                         entry.getKey(),
-                        String.valueOf(result)
+                        outputValue
                 };
             }
         };

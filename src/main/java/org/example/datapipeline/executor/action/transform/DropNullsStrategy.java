@@ -57,7 +57,10 @@ public class DropNullsStrategy implements TransformStrategy {
                     indices = new int[colsToDrop.length];
                     for (int i = 0; i < colsToDrop.length; i++) {
                         Integer idx = map.get(colsToDrop[i]);
-                        indices[i] = idx == null ? -1 : idx;
+                        if (idx == null) {
+                            throw new RuntimeException("Column not found: " + colsToDrop[i]);
+                        }
+                        indices[i] = idx;
                     }
                     return header;
                 }
