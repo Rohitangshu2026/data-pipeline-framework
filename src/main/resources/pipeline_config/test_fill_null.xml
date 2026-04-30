@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="test_fill_nulls">
+
+    <datasources>
+        <datasource id="input" type="csv">
+            <param name="src" value="src/main/resources/input/test_input.csv"/>
+        </datasource>
+    </datasources>
+
+    <stage id="fill_price">
+
+        <task>
+            <input ref="input"/>
+
+            <action type="transform">
+                <method name="fill_nulls">
+                    <param name="column" value="price"/>
+                    <param name="value" value="0"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_fill_price.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+</job>

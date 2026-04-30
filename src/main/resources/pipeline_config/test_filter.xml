@@ -1,0 +1,23 @@
+<job id="test_filter">
+    <datasources>
+        <datasource id="input" type="csv">
+            <param name="src" value="src/main/resources/input/test_input.csv"/>
+        </datasource>
+    </datasources>
+
+    <stage id="filter_stage">
+        <task>
+            <input ref="input"/>
+            <action type="transform">
+                <method name="filter">
+                    <param name="column" value="event_type"/>
+                    <param name="operator" value="="/>
+                    <param name="value" value="cart"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_filter.csv"/>
+            </output>
+        </task>
+    </stage>
+</job>

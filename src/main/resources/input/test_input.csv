@@ -1,0 +1,7 @@
+event_type,product_id,price,user_id,user_session
+purchase,1001,100,1,s1
+view,1002,200,2,s2
+purchase,1003,,3,s3
+cart,1004,50,,s4
+purchase,1005,300,1,s5
+purchase,1006,150,2,s6

@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="test_drop_nulls_full">
+
+    <!-- ===================== DATASOURCE ===================== -->
+    <datasources>
+        <datasource id="input" type="csv">
+            <param name="src" value="src/main/resources/input/test_input.csv"/>
+        </datasource>
+    </datasources>
+
+    <!-- ===================== STAGE 1: DROP NULLS (price) ===================== -->
+    <stage id="drop_price">
+
+        <task>
+            <input ref="input"/>
+
+            <action type="transform">
+                <method name="drop_nulls">
+                    <param name="columns" value="price"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_drop_price.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+    <!-- ===================== STAGE 2: DROP NULLS (user_id) ===================== -->
+    <stage id="drop_user" pre_req="drop_price">
+
+        <task>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/out_drop_price.csv"/>
+            </input>
+
+            <action type="transform">
+                <method name="drop_nulls">
+                    <param name="columns" value="user_id"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_drop_user.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+    <!-- ===================== STAGE 3: MULTI-COLUMN DROP ===================== -->
+    <stage id="drop_multi">
+
+        <task>
+            <input ref="input"/>
+
+            <action type="transform">
+                <method name="drop_nulls">
+                    <param name="columns" value="price,user_id"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_drop_multi.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+    <!-- ===================== STAGE 4: FILL THEN DROP ===================== -->
+    <stage id="fill_then_drop">
+
+        <!-- fill price -->
+        <task>
+            <input ref="input"/>
+            <action type="transform">
+                <method name="fill_nulls">
+                    <param name="column" value="price"/>
+                    <param name="value" value="0"/>
+                </method>
+            </action>
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/temp_filled.csv"/>
+            </output>
+        </task>
+
+        <!-- now drop user_id nulls -->
+        <task>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/temp_filled.csv"/>
+            </input>
+
+            <action type="transform">
+                <method name="drop_nulls">
+                    <param name="columns" value="user_id"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_fill_then_drop.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+    <stage id="drop_invalid_column">
+
+        <task>
+            <input ref="input"/>
+
+            <action type="transform">
+                <method name="drop_nulls">
+                    <param name="columns" value="nonexistent"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_invalid_column.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+</job>

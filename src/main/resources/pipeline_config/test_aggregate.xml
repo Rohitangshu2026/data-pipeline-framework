@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="test_all_aggregates">
+
+    <!-- ===================== DATASOURCE ===================== -->
+    <datasources>
+        <datasource id="input" type="csv">
+            <param name="src" value="src/main/resources/input/test_input.csv"/>
+        </datasource>
+    </datasources>
+
+    <!-- ===================== STAGE 1: FILTER ===================== -->
+    <stage id="filter_stage">
+
+        <task>
+            <input ref="input"/>
+
+            <action type="transform">
+                <method name="filter">
+                    <param name="column" value="event_type"/>
+                    <param name="operator" value="="/>
+                    <param name="value" value="purchase"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/temp_filtered.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+    <!-- ===================== SUM ===================== -->
+    <stage id="aggregate_sum" pre_req="filter_stage">
+        <task>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/temp_filtered.csv"/>
+            </input>
+
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="user_id"/>
+                    <param name="column" value="price"/>
+                    <param name="operation" value="sum"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_sum.csv"/>
+            </output>
+        </task>
+    </stage>
+
+    <!-- ===================== AVG ===================== -->
+    <stage id="aggregate_avg" pre_req="filter_stage">
+        <task>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/temp_filtered.csv"/>
+            </input>
+
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="user_id"/>
+                    <param name="column" value="price"/>
+                    <param name="operation" value="avg"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_avg.csv"/>
+            </output>
+        </task>
+    </stage>
+
+    <!-- ===================== MIN ===================== -->
+    <stage id="aggregate_min" pre_req="filter_stage">
+        <task>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/temp_filtered.csv"/>
+            </input>
+
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="user_id"/>
+                    <param name="column" value="price"/>
+                    <param name="operation" value="min"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_min.csv"/>
+            </output>
+        </task>
+    </stage>
+
+    <!-- ===================== MAX ===================== -->
+    <stage id="aggregate_max" pre_req="filter_stage">
+        <task>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/temp_filtered.csv"/>
+            </input>
+
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="user_id"/>
+                    <param name="column" value="price"/>
+                    <param name="operation" value="max"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_max.csv"/>
+            </output>
+        </task>
+    </stage>
+
+    <!-- ===================== COUNT ===================== -->
+    <stage id="aggregate_count" pre_req="filter_stage">
+        <task>
+            <input type="csv">
+                <param name="src" value="src/main/resources/output/temp_filtered.csv"/>
+            </input>
+
+            <action type="transform">
+                <method name="aggregate">
+                    <param name="group_by" value="user_id"/>
+                    <param name="column" value="price"/>
+                    <param name="operation" value="count"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_count.csv"/>
+            </output>
+        </task>
+    </stage>
+
+</job>

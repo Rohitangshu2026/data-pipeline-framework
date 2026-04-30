@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<job id="test_derive">
+
+    <datasources>
+        <datasource id="input" type="csv">
+            <param name="src" value="src/main/resources/input/test_input.csv"/>
+        </datasource>
+    </datasources>
+
+    <stage id="derive_stage">
+
+        <task>
+            <input ref="input"/>
+
+            <action type="transform">
+                <method name="derive">
+                    <param name="new_column" value="score"/>
+                    <param name="formula" value="(price * 2 + 10) * (price - 5) / (price + 1)"/>
+                </method>
+            </action>
+
+            <output type="csv">
+                <param name="src" value="src/main/resources/output/out_derive_simple.csv"/>
+            </output>
+        </task>
+
+    </stage>
+
+</job>
