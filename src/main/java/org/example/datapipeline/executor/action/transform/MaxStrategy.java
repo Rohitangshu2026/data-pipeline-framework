@@ -3,6 +3,30 @@ package org.example.datapipeline.executor.action.transform;
 import org.example.datapipeline.executor.iterator.DataIterator;
 import org.example.datapipeline.config.action.Method;
 
+/**
+ * Transform strategy that computes the global maximum value of a single numeric column.
+ *
+ * <p>Required method parameter:
+ * <ul>
+ *   <li>{@code column} – name of the column whose maximum to compute</li>
+ * </ul>
+ *
+ * <p><b>Output schema:</b> the returned iterator emits exactly two rows:
+ * <ol>
+ *   <li>Header row: {@code ["max_<column>"]}</li>
+ *   <li>Data row: {@code [String.valueOf(maxValue)]} or {@code ["NaN"]} if no numeric
+ *       values were found</li>
+ * </ol>
+ *
+ * <p><b>Execution model:</b> this strategy is <em>eager</em> — it fully consumes the input
+ * iterator during {@link #apply} to find the maximum before returning the output iterator.
+ * The output iterator is therefore a lightweight stateful object (two states: header, value).
+ *
+ * <p>Non-numeric cells are silently ignored via {@link NumberFormatException} catch.
+ *
+ * <p>Typical use case: computing the highest single transaction value across a dataset for
+ * summary statistics in a scorecard report.
+ */
 public class MaxStrategy implements TransformStrategy {
     @Override
     public DataIterator apply(DataIterator input, Method method) {

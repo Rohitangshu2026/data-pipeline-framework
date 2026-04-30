@@ -5,6 +5,26 @@ import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
+/**
+ * Transform strategy that removes rows where any of the specified columns is null or blank.
+ *
+ * <p>Required method parameter:
+ * <ul>
+ *   <li>{@code columns} – comma-separated list of column names to check for null/blank values
+ *       (e.g. {@code "price,brand"})</li>
+ * </ul>
+ *
+ * <p>A cell is considered null/blank if it is Java {@code null}, an empty string, or a
+ * whitespace-only string. Rows where all specified columns have non-blank values are passed
+ * through; all others are silently dropped.
+ *
+ * <p>The returned iterator is <em>lazy</em>: only the next qualifying row is held in memory
+ * at any time, making this O(1) in space. The header row is always emitted first without
+ * any filtering applied to it.
+ *
+ * <p>Throws a {@link RuntimeException} at header-processing time if any column name in
+ * the {@code columns} list is not found in the input header.
+ */
 public class DropNullsStrategy implements TransformStrategy {
 
     @Override

@@ -5,6 +5,24 @@ import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
+/**
+ * Transform strategy that projects (selects) a defined subset of columns from each row.
+ *
+ * <p>Required method parameter:
+ * <ul>
+ *   <li>{@code columns} – comma-separated list of column names to retain, in the desired
+ *       output order (e.g. {@code "brand,price,product_id"})</li>
+ * </ul>
+ *
+ * <p>Columns not listed are silently dropped. The output header row contains exactly the
+ * columns listed in {@code columns}, in the order specified. If a listed column does not
+ * exist in the input header, a {@link RuntimeException} is thrown during header processing.
+ *
+ * <p>The returned iterator is <em>lazy</em>: column index resolution happens on the first
+ * call to {@link DataIterator#next()} (when the header is processed); subsequent calls
+ * project each data row using the pre-computed index array in O(k) time where k is the
+ * number of selected columns.
+ */
 public class SelectStrategy implements TransformStrategy {
 
     @Override

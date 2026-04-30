@@ -14,6 +14,39 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Plugin action that generates a text-based credential document for each student row.
+ *
+ * <p>Registered under the action type {@code "generate_pdf"} via the
+ * {@link java.util.ServiceLoader} SPI. Despite the name, the current implementation writes
+ * a plain-text file (simulating a PDF) for each row. This is intentional for the demo –
+ * a real PDF library (e.g. iText, Apache PDFBox) could replace the {@link java.io.FileWriter}
+ * calls without changing the plugin contract.
+ *
+ * <h2>Parameters</h2>
+ * <ul>
+ *   <li>{@code output_dir}        – directory where generated files are written
+ *       (created if it does not exist); default: {@code "target/generated_pdfs"}</li>
+ *   <li>{@code fields}            – comma-separated {@code label:column} pairs defining which
+ *       columns to include and how to label them in the output file
+ *       (e.g. {@code "Name:name,Roll Number:roll_number,Email:institute_email"})</li>
+ *   <li>{@code file_name_template} – filename template with {@code {column_name}} placeholders
+ *       resolved from each row (e.g. {@code "{roll_number}_credentials.txt"})</li>
+ * </ul>
+ *
+ * <h2>Input/Output</h2>
+ * <p>Accepts any row schema; columns referenced in {@code fields} or {@code file_name_template}
+ * must exist in the header. Appends two columns:
+ * <ul>
+ *   <li>{@code pdf_status} – {@code "SUCCESS"} or {@code "FAILED"}</li>
+ *   <li>{@code pdf_path}   – absolute path of the generated file (empty on failure)</li>
+ * </ul>
+ *
+ * <h2>Error Handling</h2>
+ * <p>If file generation fails for a specific row (e.g. disk full), the error is printed
+ * to {@code System.err}, the row's {@code pdf_status} is set to {@code "FAILED"}, and
+ * processing continues with the next row.
+ */
 public class GeneratePdfPlugin implements ActionPlugin {
 
     @Override

@@ -5,6 +5,34 @@ import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
+/**
+ * Transform strategy that applies min-max normalisation to a single numeric column.
+ *
+ * <p>Required method parameter:
+ * <ul>
+ *   <li>{@code column} – name of the column to normalise</li>
+ * </ul>
+ *
+ * <p><b>Algorithm:</b> For each value {@code v} in the column, the normalised value is
+ * computed as:
+ * <pre>    normalised = (v - min) / (max - min)</pre>
+ * where {@code min} and {@code max} are the global minimum and maximum of the column
+ * across all data rows. The result is in the range {@code [0.0, 1.0]}, where the row with
+ * the smallest value gets {@code 0.0} and the row with the largest gets {@code 1.0}. When
+ * all values are equal (min == max), the normalised value is {@code 0.0}.
+ *
+ * <p><b>Memory usage:</b> This strategy requires a full materialisation pass. On the first
+ * call to {@link DataIterator#hasNext()} or {@link DataIterator#next()} after the header is
+ * consumed, all remaining rows are loaded into a {@code List<String[]>} while the min/max
+ * are computed. The normalised values are then written back into the buffered rows during
+ * the output phase. Memory is O(N) where N is the number of data rows.
+ *
+ * <p>Non-numeric values in the target column are silently ignored during min/max computation
+ * and left unchanged in the output.
+ *
+ * <p>Typical use case: converting raw revenue sums into a {@code [0, 1]} score where the
+ * top-revenue brand receives exactly {@code 1.0000}.
+ */
 public class NormalizeStrategy implements TransformStrategy {
 
     @Override

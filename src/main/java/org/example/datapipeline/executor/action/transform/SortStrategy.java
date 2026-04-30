@@ -5,6 +5,34 @@ import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
+/**
+ * Transform strategy that sorts all data rows by a single column, ascending or descending.
+ *
+ * <p>Required method parameters:
+ * <ul>
+ *   <li>{@code column} – name of the column to sort by</li>
+ *   <li>{@code order}  – sort direction: {@code "asc"} for ascending,
+ *       {@code "desc"} for descending (case-insensitive)</li>
+ * </ul>
+ *
+ * <p><b>Sort key type:</b> values are first attempted to be parsed as {@code double}; if
+ * parsing succeeds for both rows, numeric comparison is used ({@link Double#compare}).
+ * If either value is non-numeric, lexicographic string comparison is used.
+ *
+ * <p><b>Memory usage:</b> all data rows are materialised into a {@code List<String[]>}
+ * before any output is produced (the sort cannot be lazy). The in-memory sort uses
+ * Java's {@link java.util.List#sort} (TimSort), which is O(N log N) in time and O(N)
+ * in space.
+ *
+ * <p>The header row is always emitted first and is not included in the sort.
+ *
+ * <p><b>Note:</b> a comment in the source mentions "External sorting can be added later".
+ * For datasets that exceed available heap, an external merge-sort (similar to the
+ * sort-merge join's {@code externalSortFromIterator}) would be the appropriate upgrade.
+ *
+ * <p>Typical use case: sorting brands by normalised revenue score (descending) before
+ * applying a {@link LimitStrategy} to produce a top-N leaderboard.
+ */
 public class SortStrategy implements TransformStrategy {
 
     @Override

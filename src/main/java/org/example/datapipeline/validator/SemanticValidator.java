@@ -117,6 +117,25 @@ public class SemanticValidator {
         }
     }
 
+    /**
+     * Validates that the task's method parameters include all required keys for its action type.
+     *
+     * <p>Performs type-specific validation:
+     * <ul>
+     *   <li>For {@code transform} actions, checks that the method-specific required params
+     *       (e.g. {@code column}, {@code operator}, {@code value} for {@code filter}) are
+     *       all present and non-blank.</li>
+     *   <li>For {@code join} actions, checks for {@code left_key}, {@code right_key}, and
+     *       either {@code right_src} or {@code right_ref}. Also validates that {@code join_type}
+     *       and {@code join_strategy} use known values and that {@code sort_merge} is only
+     *       combined with {@code inner}.</li>
+     *   <li>For {@code bash} actions, checks that the {@code script} parameter is present.</li>
+     * </ul>
+     *
+     * @param task    the task to validate
+     * @param stageId the enclosing stage ID (for error messages)
+     * @throws RuntimeException if a required parameter is missing, blank, or invalid
+     */
     private static void validateMethodParams(org.example.datapipeline.config.Task task, String stageId) {
         org.example.datapipeline.config.action.Action action = task.getAction();
         if (action == null || action.getType() == null) return;
@@ -166,6 +185,15 @@ public class SemanticValidator {
         }
     }
 
+    /**
+     * Asserts that all listed parameter names are present and non-blank in the given map.
+     *
+     * @param params     the resolved parameter map for the method
+     * @param stageId    the enclosing stage ID (for error messages)
+     * @param methodName the method name (for error messages)
+     * @param required   the parameter names that must all be present and non-blank
+     * @throws RuntimeException if any required parameter is absent or blank
+     */
     private static void requireParams(java.util.Map<String, String> params, String stageId, String methodName, String... required) {
         for (String req : required) {
             String val = params.get(req);

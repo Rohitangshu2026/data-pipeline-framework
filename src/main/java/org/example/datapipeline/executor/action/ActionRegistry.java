@@ -7,22 +7,29 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Acts as a central registry for all available action executors in the pipeline.
+ * Singleton registry that maps action type strings to their {@link ActionExecutor} instances.
  *
- * Maps action types to their corresponding implementations and provides
- * a lookup mechanism to retrieve them during execution.
+ * <p>The registry is initialised once in a static block when the class is first loaded.
+ * Three built-in executors are registered unconditionally:
+ * <ul>
+ *   <li>{@code "bash"}      → {@link BashAction} – runs a shell script with I/O paths as arguments</li>
+ *   <li>{@code "transform"} → {@link org.example.datapipeline.executor.action.transform.TransformAction}
+ *       – delegates to one of the registered {@link org.example.datapipeline.executor.action.transform.TransformStrategy}
+ *       implementations based on the method name</li>
+ *   <li>{@code "join"}      → {@link org.example.datapipeline.executor.action.join.JoinAction}
+ *       – performs hash or sort-merge joins between two datasets</li>
+ * </ul>
  *
- * Executors are registered once and reused, allowing the pipeline to
- * dynamically resolve and execute actions based on configuration.
+ * <p>After the built-ins, the registry discovers third-party action plugins via the Java
+ * {@link java.util.ServiceLoader} SPI. Any JAR on the classpath that contains a
+ * {@code META-INF/services/org.example.datapipeline.plugin.ActionPlugin} file listing
+ * concrete {@link org.example.datapipeline.plugin.ActionPlugin} implementations will have
+ * those plugins wrapped in a {@link org.example.datapipeline.plugin.PluginAdapter} and
+ * registered automatically. This allows new action types to be contributed without modifying
+ * the framework core.
  *
- * Supports:
- * - bash      : executes shell scripts
- * - transform : performs in-memory data transformations
- *
- * Throws an exception if an unsupported action type is requested.
- *
- * This design enables easy extensibility by allowing new actions to be
- * added through registration without modifying existing logic.
+ * <p>All registered executors are shared singletons – they are looked up by type string
+ * (lowercased) at task execution time and must therefore be <b>thread-safe</b>.
  */
 public class ActionRegistry{
 
@@ -40,10 +47,29 @@ public class ActionRegistry{
         }
     }
 
+    /**
+     * Adds an executor to the registry under its own type key.
+     *
+     * <p>The key is taken from {@link ActionExecutor#getType()}, already lowercase by
+     * convention. If an executor with the same type is already registered, it is silently
+     * replaced (last registration wins), which allows plugins to override built-ins.
+     *
+     * @param action the executor instance to register; must not be {@code null}
+     */
     private static void register(ActionExecutor action){
         registry.put(action.getType(), action);
     }
 
+    /**
+     * Looks up and returns the registered executor for the given action type.
+     *
+     * <p>The lookup is case-insensitive (type is lowercased before lookup).
+     *
+     * @param type the action type string declared in the pipeline XML
+     *             (e.g. {@code "transform"}, {@code "join"}, {@code "bash"})
+     * @return the registered {@link ActionExecutor} instance; never {@code null}
+     * @throws RuntimeException if no executor is registered for the given type
+     */
     public static ActionExecutor getAction(String type){
         ActionExecutor action = registry.get(type.toLowerCase());
         if (action == null) {

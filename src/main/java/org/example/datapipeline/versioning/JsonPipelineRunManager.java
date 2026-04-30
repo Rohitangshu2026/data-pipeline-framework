@@ -11,13 +11,58 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * JSON-file-backed implementation of {@link PipelineRunManager}.
+ *
+ * <p>Persists each {@link PipelineRun} as a pretty-printed JSON file in the {@code runs/}
+ * directory (relative to the process working directory). The file is named
+ * {@code <runId>.json}. The directory is created on construction if it does not exist.
+ *
+ * <h2>JSON Schema</h2>
+ * <pre>{@code
+ * {
+ *   "runId": "...",
+ *   "xmlSnapshot": "<job id=...>...</job>",
+ *   "startTime": 1700000000000,
+ *   "endTime":   1700000060000,
+ *   "status": "SUCCESS",
+ *   "stages": [
+ *     {
+ *       "stageId": "filter_purchases",
+ *       "startTime": ..., "endTime": ..., "status": "SUCCESS",
+ *       "tasks": [
+ *         { "taskId": "transform", "rowsIn": 67500000, "rowsOut": 916940,
+ *           "duration": 123456, "success": true }
+ *       ]
+ *     }
+ *   ]
+ * }
+ * }</pre>
+ *
+ * <p>Uses the {@code org.json} library for serialisation and deserialisation.
+ * Serialisation errors are printed to {@code System.err} but do not throw, so a failed
+ * save does not interrupt the pipeline. Deserialisation errors (in {@link #getRun}) do
+ * throw because the caller explicitly requested a specific run.
+ */
 public class JsonPipelineRunManager implements PipelineRunManager {
     private final String storageDir = "runs";
 
+    /**
+     * Creates the manager and ensures the {@code runs/} storage directory exists.
+     */
     public JsonPipelineRunManager() {
         new File(storageDir).mkdirs();
     }
 
+    /**
+     * Serialises the given run to a JSON file at {@code runs/<runId>.json}.
+     *
+     * <p>The full {@link PipelineRun} object graph (including all stage and task runs) is
+     * serialised. If writing fails, the error is printed to {@code System.err} and the
+     * method returns normally (non-fatal).
+     *
+     * @param run the pipeline run to persist; must not be {@code null}
+     */
     @Override
     public void saveRun(PipelineRun run) {
         try {
@@ -58,6 +103,16 @@ public class JsonPipelineRunManager implements PipelineRunManager {
         }
     }
 
+    /**
+     * Deserialises and returns the pipeline run stored at {@code runs/<runId>.json}.
+     *
+     * <p>Reconstructs the full {@link PipelineRun} object graph including all
+     * {@link StageRun} and {@link TaskRun} children.
+     *
+     * @param runId the UUID string of the run to retrieve
+     * @return the deserialised {@link PipelineRun}
+     * @throws RuntimeException if the file does not exist or cannot be parsed
+     */
     @Override
     public PipelineRun getRun(String runId) {
         try {
@@ -102,6 +157,14 @@ public class JsonPipelineRunManager implements PipelineRunManager {
         }
     }
 
+    /**
+     * Lists the IDs of all runs saved in the {@code runs/} directory.
+     *
+     * <p>Returns the base filenames (without the {@code .json} extension) of all
+     * {@code .json} files found in the storage directory. Order is filesystem-dependent.
+     *
+     * @return list of run ID strings; empty if no runs have been saved or directory is missing
+     */
     @Override
     public List<String> listRuns() {
         List<String> runs = new ArrayList<>();

@@ -7,6 +7,27 @@ import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.File;
 
+/**
+ * {@link DataWriter} implementation that writes rows as comma-separated values to a file.
+ *
+ * <p>Registered in {@link DataIORegistry} under the type key {@code "csv"}. Used whenever
+ * the framework needs to persist the output of a task (all action types except those that
+ * declare {@link org.example.datapipeline.executor.action.ActionExecutor#handlesOwnOutput()}).
+ *
+ * <p>Required parameter:
+ * <ul>
+ *   <li>{@code src} – destination file path; parent directories are created if they do not
+ *       exist</li>
+ * </ul>
+ *
+ * <p>Each row from the iterator is joined with {@code ","} and written as a single line
+ * (platform line separator). The file is opened with {@link java.io.FileWriter} in
+ * overwrite mode (existing content is replaced). A {@link java.io.BufferedWriter} reduces
+ * I/O system calls for large outputs.
+ *
+ * <p>The total number of written rows (including the header) is logged at INFO level after
+ * the write completes.
+ */
 public class CsvDataWriter implements DataWriter {
     private static final Logger logger = Logger.getLogger(CsvDataWriter.class.getName());
 

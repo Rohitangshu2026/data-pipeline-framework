@@ -11,10 +11,90 @@ import org.example.datapipeline.executor.action.ActionExecutor;
 
 import java.util.*;
 
+/**
+ * Action executor that performs a relational join between two datasets.
+ *
+ * <h2>Overview</h2>
+ * <p>{@code JoinAction} supports four join types (inner, left, right, full) via two
+ * physical strategies (hash join and sort-merge join), selected at runtime based on the
+ * pipeline XML configuration.
+ *
+ * <h2>Input Configuration</h2>
+ * <p>Required method parameters:
+ * <ul>
+ *   <li>{@code left_key}      – column name in the left (primary) dataset</li>
+ *   <li>{@code right_key}     – column name in the right (secondary) dataset</li>
+ *   <li>{@code right_ref}     – global datasource ID for the right dataset (preferred), OR</li>
+ *   <li>{@code right_src}     – direct file path for the right dataset (CSV only)</li>
+ *   <li>{@code join_type}     – {@code inner} (default), {@code left}, {@code right},
+ *       {@code full}</li>
+ *   <li>{@code join_strategy} – {@code hash} (default) or {@code sort_merge}</li>
+ * </ul>
+ *
+ * <h2>Output Schema</h2>
+ * <p>The output header is the full left header followed by all right columns <em>except</em>
+ * the right key column, each prefixed with {@code right_}:
+ * <pre>
+ *   left columns:  [brand, sum_price]
+ *   right columns: [brand, count_product_id]       (brand is the join key)
+ *   output header: [brand, sum_price, right_count_product_id]
+ * </pre>
+ * This naming convention avoids column name collisions in multi-stage chained joins.
+ *
+ * <h2>Hash Join Strategy</h2>
+ * <p>The default strategy for datasets up to ~100K right-side rows:
+ * <ol>
+ *   <li><b>Build phase</b> – the entire right dataset is loaded into a
+ *       {@code HashMap<key, List<String[]>>}. An {@link java.util.IdentityHashMap} also
+ *       tracks which right rows have been matched (for right/full outer joins).</li>
+ *   <li><b>Probe phase</b> – the left dataset is streamed row by row; each left-key value
+ *       is looked up in the hash map to find matching right rows. The probe phase is
+ *       implemented as a lazy {@link DataIterator} so the left side is not materialised.</li>
+ * </ol>
+ * Memory: O(R) where R = number of right-side rows.
+ *
+ * <h2>Sort-Merge Join Strategy</h2>
+ * <p>An alternative for large datasets where both sides are too big to fit in memory.
+ * Only {@code inner} join is supported with sort-merge:
+ * <ol>
+ *   <li><b>External sort</b> – both iterators are sorted by their key column using an
+ *       external sort ({@link #externalSortFromIterator}): rows are processed in
+ *       50,000-row chunks, each chunk sorted in memory and spilled to a temp file in
+ *       {@code /tmp/}. Temp files are registered with {@link ExecutionContext#registerTempFile}
+ *       for automatic cleanup.</li>
+ *   <li><b>K-way merge</b> – a {@link MergeIterator} backed by a {@link java.util.PriorityQueue}
+ *       merges the sorted run files, producing a globally sorted stream without loading all
+ *       runs into memory simultaneously.</li>
+ *   <li><b>Merge phase</b> – a {@link SortMergeIterator} advances both sorted streams
+ *       in lockstep, collecting groups of equal keys and emitting their cross product.</li>
+ * </ol>
+ * Memory: O(chunk_size) for the sort phase + O(run_count) for the merge priority queue.
+ *
+ * <h2>Cleanup</h2>
+ * <p>Both strategies wrap their output iterator in a {@link CleanupIterator} that calls
+ * {@link ExecutionContext#cleanup()} when the iterator is exhausted or an exception is
+ * thrown. This ensures temp files from the sort-merge join are deleted even when the
+ * downstream consumer does not fully drain the iterator.
+ */
 public class JoinAction implements ActionExecutor {
 
     private static final Logger logger = Logger.getLogger(JoinAction.class.getName());
 
+    /**
+     * Opens a {@link DataIterator} over the right-side dataset.
+     *
+     * <p>Resolution order:
+     * <ol>
+     *   <li>If {@code right_ref} is set, looks up the datasource by ID from the
+     *       execution-context metadata map, reads its type and parameters, and delegates to
+     *       {@link org.example.datapipeline.executor.io.DataIORegistry}.</li>
+     *   <li>If {@code right_src} is set, opens a CSV iterator directly on that file path.</li>
+     * </ol>
+     *
+     * @param ctx execution context supplying method params and the global datasource map
+     * @return a new iterator positioned before the right dataset's header row
+     * @throws RuntimeException if neither {@code right_ref} nor {@code right_src} is present
+     */
     private DataIterator createRightIterator(ExecutionContext ctx) {
         Map<String, String> params = ctx.getMethod().getParamMap();
         String rightSrc = params.get("right_src");
@@ -96,6 +176,25 @@ public class JoinAction implements ActionExecutor {
         logger.info("[JOIN_METRICS] strategy=" + strategy + " durationMs=" + duration);
     }
 
+    /**
+     * Executes a hash join between the left and right datasets.
+     *
+     * <p>Build phase: loads all right rows into a {@code HashMap<key, List<String[]>>}.
+     * Probe phase: streams left rows and looks up each key in the hash map.
+     *
+     * <p>For left/full outer joins, unmatched left rows are emitted with empty right-column
+     * values. For right/full outer joins, unmatched right rows (tracked via an
+     * {@link java.util.IdentityHashMap}) are emitted after all left rows are processed.
+     *
+     * @param leftIt      streaming iterator over the left dataset (header already consumed)
+     * @param rightIt     streaming iterator over the right dataset (header already consumed)
+     * @param leftHeader  the left dataset header row
+     * @param rightHeader the right dataset header row
+     * @param leftKeyIdx  column index of the join key in the left dataset
+     * @param rightKeyIdx column index of the join key in the right dataset
+     * @param joinType    {@code "inner"}, {@code "left"}, {@code "right"}, or {@code "full"}
+     * @return a lazy iterator producing the joined header followed by joined data rows
+     */
     private DataIterator executeHashJoin(DataIterator leftIt, DataIterator rightIt,
                                          String[] leftHeader, String[] rightHeader,
                                          int leftKeyIdx, int rightKeyIdx, String joinType) {
@@ -232,6 +331,26 @@ public class JoinAction implements ActionExecutor {
         };
     }
 
+    /**
+     * Executes a sort-merge inner join between the left and right datasets.
+     *
+     * <p>Both input iterators are externally sorted by their key columns (chunk-at-a-time,
+     * spilling to temp files). The sorted run files are then merged via a
+     * {@link MergeIterator} and fed into a {@link SortMergeIterator} that produces the
+     * joined output.
+     *
+     * <p>Only inner joins are supported. Temp files are registered with
+     * {@link ExecutionContext#registerTempFile} for cleanup.
+     *
+     * @param ctx         execution context (used for temp file registration)
+     * @param leftIt      left dataset iterator (header already consumed)
+     * @param rightIt     right dataset iterator (header already consumed)
+     * @param leftHeader  left dataset column names
+     * @param rightHeader right dataset column names
+     * @param leftKeyIdx  join key column index in left
+     * @param rightKeyIdx join key column index in right
+     * @return lazy iterator producing the joined inner result
+     */
     private DataIterator executeSortMergeJoin(ExecutionContext ctx, DataIterator leftIt, DataIterator rightIt,
                                               String[] leftHeader, String[] rightHeader,
                                               int leftKeyIdx, int rightKeyIdx) {
@@ -257,6 +376,20 @@ public class JoinAction implements ActionExecutor {
         }
     }
 
+    /**
+     * K-way merge iterator that produces a globally sorted stream from multiple pre-sorted
+     * run files.
+     *
+     * <p>Uses a min-heap ({@link java.util.PriorityQueue}) of {@link MergeIterator.Entry}
+     * objects, one entry per run file. On each {@link #next()} call, the smallest entry
+     * is polled and the corresponding file's next row is pushed back into the heap. This
+     * produces a globally sorted stream in O(log k) per row, where k is the number of
+     * run files.
+     *
+     * <p>Key comparison delegates to {@link JoinAction#compareKeys}, which performs numeric
+     * comparison when both values are parseable as {@code double}, and lexicographic
+     * comparison otherwise.
+     */
     class MergeIterator implements DataIterator {
         static class Entry {
             String[] row;
@@ -300,6 +433,23 @@ public class JoinAction implements ActionExecutor {
         }
     }
 
+    /**
+     * Streaming iterator that performs the merge phase of a sort-merge inner join.
+     *
+     * <p>Advances two sorted input iterators ({@code left}, {@code right}) in lockstep:
+     * <ul>
+     *   <li>When {@code left.key < right.key}, advance left (no match).</li>
+     *   <li>When {@code left.key > right.key}, advance right (no match).</li>
+     *   <li>When keys are equal, collect all left and right rows with that key into
+     *       local groups and emit their full cross product into an internal buffer.</li>
+     * </ul>
+     *
+     * <p>The header is emitted on the first call: left columns followed by right columns
+     * (excluding the right key column, prefixed with {@code right_}).
+     *
+     * <p>Buffered rows from the cross product are drained on subsequent calls to
+     * {@link #hasNext()} / {@link #next()}.
+     */
     class SortMergeIterator implements DataIterator {
         DataIterator left;
         DataIterator right;
@@ -412,6 +562,14 @@ public class JoinAction implements ActionExecutor {
         }
     }
 
+    /**
+     * Decorator iterator that triggers {@link ExecutionContext#cleanup()} when the
+     * underlying iterator is exhausted or an exception escapes a {@link #next()} call.
+     *
+     * <p>This ensures that sort-merge join temp files are deleted even when the downstream
+     * consumer (the CSV writer) does not handle cleanup itself. Cleanup is idempotent –
+     * subsequent calls after the first are no-ops.
+     */
     class CleanupIterator implements DataIterator {
         private final DataIterator delegate;
         private final ExecutionContext ctx;
@@ -449,6 +607,21 @@ public class JoinAction implements ActionExecutor {
         }
     }
 
+    /**
+     * Performs an external sort of the given iterator by the specified key column.
+     *
+     * <p>Reads the iterator in chunks of 50,000 rows, sorts each chunk in memory using
+     * {@link JoinAction#compareKeys}, writes the sorted chunk to a temp file under
+     * {@code /tmp/sort_<UUID>.csv}, and registers the temp file with the execution context
+     * for automatic cleanup. Returns the list of temp file paths, which are then merged
+     * by {@link MergeIterator}.
+     *
+     * @param ctx    execution context for temp file registration
+     * @param it     the iterator to sort (header must already have been consumed)
+     * @param keyIdx the column index to sort by
+     * @return list of sorted run-file paths (may be empty if the input is empty)
+     * @throws Exception if a temp file cannot be written
+     */
     private List<String> externalSortFromIterator(ExecutionContext ctx, DataIterator it, int keyIdx) throws Exception {
         final int CHUNK_SIZE = 50_000;
         List<String> tempFiles = new ArrayList<>();
@@ -478,6 +651,17 @@ public class JoinAction implements ActionExecutor {
         return tempFiles;
     }
 
+    /**
+     * Compares two key values, using numeric comparison when both are parseable as
+     * {@code double} and lexicographic string comparison otherwise.
+     *
+     * <p>This approach correctly orders both purely numeric keys (e.g. user IDs, prices)
+     * and string keys (e.g. brand names) without requiring type metadata.
+     *
+     * @param a the first key value
+     * @param b the second key value
+     * @return negative if {@code a < b}, zero if equal, positive if {@code a > b}
+     */
     private static int compareKeys(String a, String b) {
         try {
             return Double.compare(Double.parseDouble(a), Double.parseDouble(b));
@@ -486,6 +670,17 @@ public class JoinAction implements ActionExecutor {
         }
     }
 
+    /**
+     * Finds the column index of a named key in a header row.
+     *
+     * <p>Comparison is case-insensitive and trims surrounding whitespace, so header values
+     * like {@code " Brand "} are matched by {@code "brand"}.
+     *
+     * @param header the header row to search
+     * @param key    the column name to find
+     * @return the zero-based column index
+     * @throws RuntimeException if the column name is not found in the header
+     */
     private int findIndex(String[] header, String key) {
         for (int i = 0; i < header.length; i++) {
             if (header[i].trim().equalsIgnoreCase(key)) {

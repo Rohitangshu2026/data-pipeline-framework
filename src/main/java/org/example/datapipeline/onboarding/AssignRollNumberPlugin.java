@@ -10,6 +10,37 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Plugin action that assigns a structured roll number to each student row.
+ *
+ * <p>Registered under the action type {@code "assign_roll_number"} via the
+ * {@link java.util.ServiceLoader} SPI. Designed for university onboarding pipelines where
+ * each student must receive a unique, department-scoped identifier.
+ *
+ * <h2>Parameters</h2>
+ * <ul>
+ *   <li>{@code format}           – roll-number format string with placeholders:
+ *       {@code {year}}, {@code {dept_code}}, {@code {counter}} or
+ *       {@code {counter:N}} (zero-padded to N digits). Example: {@code "{year}{dept_code}{counter:3}"}</li>
+ *   <li>{@code year}             – default year token if the input has no {@code year} column</li>
+ *   <li>{@code dept_code_map}    – comma-separated department mappings in
+ *       {@code "DEPT_NAME:CODE"} format (e.g. {@code "COMPUTER SCIENCE:CS,MATHS:MA"})</li>
+ *   <li>{@code strict_dept_mapping} – if {@code "true"}, departments not found in the map
+ *       receive the roll number {@code "FAILED"}; otherwise the first word of the department
+ *       name is used as a fallback code</li>
+ * </ul>
+ *
+ * <h2>Input/Output</h2>
+ * <p>Expects an input with at least a {@code department} column (and optionally a
+ * {@code year} column). Appends a {@code roll_number} column to every row.
+ *
+ * <h2>Counter Scoping</h2>
+ * <p>Each department maintains its own independent counter via a
+ * {@link java.util.concurrent.ConcurrentHashMap} of {@link java.util.concurrent.atomic.AtomicInteger}
+ * values. Counters start at 1 and increment monotonically within a single plugin instance.
+ * Because the plugin instance is created fresh per executor invocation, counters reset
+ * between pipeline runs.
+ */
 public class AssignRollNumberPlugin implements ActionPlugin {
 
     @Override

@@ -17,6 +17,49 @@ import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Plugin action that enriches each row by making a per-row HTTP request and mapping fields
+ * from the JSON response back into the data stream.
+ *
+ * <p>Registered under the action type {@code "http_request"} via the
+ * {@link java.util.ServiceLoader} SPI. Useful for live credential provisioning, external
+ * ID registration, or any scenario where each row needs to call an external REST API.
+ *
+ * <h2>Parameters</h2>
+ * <ul>
+ *   <li>{@code url}              – the HTTP endpoint URL</li>
+ *   <li>{@code method}           – HTTP method: {@code "GET"} or {@code "POST"}</li>
+ *   <li>{@code output_prefix}    – prefix used for the {@code <prefix>_status} and
+ *       {@code <prefix>_error} output columns</li>
+ *   <li>{@code response_mapping} – comma-separated {@code column:json.path} pairs for
+ *       extracting values from the response JSON (e.g. {@code "lms_id:data.id,lms_handle:data.username"})</li>
+ *   <li>{@code body_template}    – JSON body template (POST only) with {@code {column}}
+ *       placeholders resolved from row values</li>
+ *   <li>{@code headers_json}     – JSON object of HTTP headers (also supports placeholders)</li>
+ *   <li>{@code strict_mapping}   – if {@code "true"}, a missing JSON path causes row failure</li>
+ *   <li>{@code mock_mode}        – if {@code "true"}, skips the actual HTTP call and returns
+ *       predictable mock values (useful for demos and tests)</li>
+ *   <li>{@code timeout_ms}       – per-request timeout in milliseconds (default: 3000)</li>
+ *   <li>{@code retry_count}      – number of retries on 5xx errors (default: 2,
+ *       with exponential backoff)</li>
+ *   <li>{@code max_qps}          – optional rate limit; if > 0, paces requests to at most
+ *       this many per second via {@code Thread.sleep}</li>
+ * </ul>
+ *
+ * <h2>Input/Output</h2>
+ * <p>Passes all original columns through unchanged and appends one column per
+ * {@code response_mapping} entry plus the {@code <prefix>_status} and
+ * {@code <prefix>_error} columns.
+ *
+ * <h2>Error Handling</h2>
+ * <p>If the HTTP call fails after all retries (or if {@code strict_mapping} rejects
+ * a response), the row's status is set to {@code "FAILED"} and the error message is
+ * stored in {@code <prefix>_error}. Processing continues with the next row.
+ *
+ * <h2>Retry Strategy</h2>
+ * <p>Retries are attempted for 5xx (server-side) errors only. Client errors (4xx) are
+ * not retried. Backoff delay doubles on each attempt: 500ms, 1000ms, 2000ms, …
+ */
 public class HttpRequestPlugin implements ActionPlugin {
 
     private static final Logger LOGGER = Logger.getLogger(HttpRequestPlugin.class.getName());
@@ -215,6 +258,27 @@ public class HttpRequestPlugin implements ActionPlugin {
         };
     }
 
+    /**
+     * Executes the HTTP request with exponential-backoff retry on server-side errors.
+     *
+     * <p>Builds the {@link java.net.http.HttpRequest} with headers and body from the
+     * templates, injecting row column values into any {@code {placeholder}} tokens.
+     * On success (2xx status), the response body is parsed as JSON and returned.
+     * On 5xx status, the request is retried up to {@code retryCount} times with a
+     * doubling delay starting at 500ms. On 4xx or after exhausting retries, a
+     * {@link RuntimeException} is thrown.
+     *
+     * @param url            the endpoint URL
+     * @param method         {@code "GET"} or {@code "POST"}
+     * @param headersJsonStr JSON string of header key-value pairs (with placeholders)
+     * @param bodyTemplateStr JSON body template string (for POST, with placeholders)
+     * @param rowMap         current row values keyed by column name (for placeholder substitution)
+     * @param timeoutMs      per-request read timeout in milliseconds
+     * @param retryCount     maximum number of retry attempts for 5xx errors
+     * @param prefix         output column prefix (used for logging)
+     * @return parsed JSON response body
+     * @throws Exception if all retries fail or an unrecoverable error occurs
+     */
     private JSONObject executeHttpWithRetry(String url, String method, String headersJsonStr, String bodyTemplateStr, Map<String, String> rowMap, int timeoutMs, int retryCount, String prefix) throws Exception {
         
         HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
@@ -268,6 +332,18 @@ public class HttpRequestPlugin implements ActionPlugin {
         }
     }
 
+    /**
+     * Navigates a dot-separated JSON path and returns the leaf value as a string.
+     *
+     * <p>For example, path {@code "data.user.id"} navigates
+     * {@code json → "data" → "user" → "id"} and returns {@code String.valueOf(value)}.
+     * Returns {@code null} if any intermediate key is missing or the final value is
+     * {@link org.json.JSONObject#NULL}.
+     *
+     * @param json the root JSON object
+     * @param path dot-separated navigation path
+     * @return the leaf value as a string, or {@code null} if the path does not exist
+     */
     private String extractValueFromPath(JSONObject json, String path) {
         String[] parts = path.split("\\.");
         Object curr = json;
@@ -282,6 +358,18 @@ public class HttpRequestPlugin implements ActionPlugin {
         return String.valueOf(curr);
     }
 
+    /**
+     * Generates a deterministic mock JSON response for the given row.
+     *
+     * <p>Used when {@code mock_mode=true}. Produces predictable values based on
+     * {@code roll_number} and {@code institute_email} column values if present, so
+     * that demo pipelines can run without a real API server.
+     *
+     * @param row            current data row
+     * @param originalHeader column names for the current row
+     * @param mappings       the configured response field mappings
+     * @return a mock JSON object with all mapped fields populated
+     */
     private JSONObject generateMockResponse(String[] row, String[] originalHeader, List<Mapping> mappings) {
         JSONObject mockOutput = new JSONObject();
         String roll = "000";
@@ -307,6 +395,14 @@ public class HttpRequestPlugin implements ActionPlugin {
         return mockOutput;
     }
 
+    /**
+     * Injects a value at a dot-separated path into a JSON object, creating intermediate
+     * objects as needed.
+     *
+     * @param json  the root JSON object to inject into (mutated in place)
+     * @param path  dot-separated path (e.g. {@code "data.user.id"})
+     * @param value the string value to set at the leaf
+     */
     private void injectJSONPath(JSONObject json, String path, String value) {
         String[] parts = path.split("\\.");
         JSONObject curr = json;
@@ -319,6 +415,14 @@ public class HttpRequestPlugin implements ActionPlugin {
         curr.put(parts[parts.length - 1], value);
     }
 
+    /**
+     * Recursively replaces {@code {placeholder}} tokens in all string values within a
+     * JSON structure (object, array, or plain string).
+     *
+     * @param obj    the JSON value to process (JSONObject, JSONArray, or String)
+     * @param rowMap current row values keyed by column name
+     * @return a new JSON structure with all placeholders resolved
+     */
     private Object recursivelyReplacePlaceholders(Object obj, Map<String, String> rowMap) {
         if (obj instanceof String) {
             return replaceStringPlaceholders((String) obj, rowMap);
@@ -340,6 +444,14 @@ public class HttpRequestPlugin implements ActionPlugin {
         return obj;
     }
 
+    /**
+     * Replaces all {@code {column_name}} placeholders in a string template with the
+     * corresponding values from the current row.
+     *
+     * @param text   the template string potentially containing {@code {placeholder}} tokens
+     * @param rowMap current row values keyed by column name
+     * @return the resolved string with all recognised placeholders substituted
+     */
     private String replaceStringPlaceholders(String text, Map<String, String> rowMap) {
         String result = text;
         Matcher m = Pattern.compile("\\{([a-zA-Z0-9_]+)\\}").matcher(text);
@@ -351,6 +463,16 @@ public class HttpRequestPlugin implements ActionPlugin {
         return result;
     }
 
+    /**
+     * Extracts all placeholder names from a template string.
+     *
+     * <p>A placeholder is any token matching the pattern {@code {[a-zA-Z0-9_]+}}.
+     * Used during header validation to verify that all required columns are present
+     * before processing any data rows.
+     *
+     * @param text the template string to scan (may be {@code null})
+     * @return set of placeholder names found; empty if none or if text is {@code null}
+     */
     private Set<String> extractPlaceholders(String text) {
         Set<String> placeholders = new HashSet<>();
         if (text == null) return placeholders;

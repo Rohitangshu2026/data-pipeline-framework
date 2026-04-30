@@ -72,6 +72,25 @@ public class Task {
         return output;
     }
 
+    /**
+     * Executes this task by resolving the action from the registry and running it.
+     *
+     * <p>This method exists primarily for unit-test convenience. In production pipelines,
+     * task execution is orchestrated by
+     * {@link org.example.datapipeline.executor.PipelineExecutor#executeStage} which
+     * wraps execution with metrics collection, retry logic, and run recording.
+     *
+     * <p>The method:
+     * <ol>
+     *   <li>Looks up the {@link ActionExecutor} implementation for {@code action.getType()}.</li>
+     *   <li>Creates a new {@link ExecutionContext} containing this task's input, output,
+     *       and method configuration.</li>
+     *   <li>Calls {@link ActionExecutor#execute(ExecutionContext)} to run the action.</li>
+     * </ol>
+     *
+     * @throws RuntimeException if the action type is not registered, required parameters are
+     *                          missing, or the underlying operation fails
+     */
     public void execute() {
 
         ActionExecutor actionImpl = ActionRegistry.getAction(action.getType());

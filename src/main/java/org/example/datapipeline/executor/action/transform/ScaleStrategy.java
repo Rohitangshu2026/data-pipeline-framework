@@ -5,6 +5,38 @@ import org.example.datapipeline.executor.iterator.DataIterator;
 
 import java.util.*;
 
+/**
+ * Transform strategy that applies Z-score standardisation to a single numeric column.
+ *
+ * <p>Required method parameter:
+ * <ul>
+ *   <li>{@code column} – name of the column to standardise</li>
+ * </ul>
+ *
+ * <p><b>Algorithm:</b> For each value {@code v} in the column, the z-score is:
+ * <pre>    z = (v - mean) / stdDev</pre>
+ * where {@code mean} is the arithmetic mean and {@code stdDev} is the population standard
+ * deviation of all numeric values in that column. The result is dimensionless and centred
+ * around 0: positive z-scores indicate above-average values, negative indicate below-average.
+ * When the standard deviation is 0 (all values identical), the z-score is {@code 0.0}.
+ *
+ * <p><b>Two-pass implementation:</b>
+ * <ol>
+ *   <li><b>First pass</b> – all rows are buffered, and the sum and count of numeric values
+ *       are accumulated to compute the mean.</li>
+ *   <li><b>Second pass</b> – the buffered rows are scanned again to compute the sum of
+ *       squared deviations (variance), from which the standard deviation is derived.</li>
+ * </ol>
+ *
+ * <p>Memory usage is O(N) — all rows are stored in a {@code List<String[]>} before any
+ * output is produced.
+ *
+ * <p>Non-numeric values in the target column are silently ignored in both passes and left
+ * unchanged in the output.
+ *
+ * <p>Typical use case: converting average transaction prices into z-scores so that brands
+ * with above-average prices score positively and below-average brands score negatively.
+ */
 public class ScaleStrategy implements TransformStrategy {
 
     @Override

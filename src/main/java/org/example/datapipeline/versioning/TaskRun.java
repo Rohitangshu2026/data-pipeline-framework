@@ -1,5 +1,28 @@
 package org.example.datapipeline.versioning;
 
+/**
+ * Value object recording the execution details of a single pipeline task.
+ *
+ * <p>A {@code TaskRun} is created per task within
+ * {@link org.example.datapipeline.executor.PipelineExecutor#executeStage} and populated
+ * with row counts, duration, and success/failure status after the task completes. It is
+ * appended to the parent {@link StageRun}.
+ *
+ * <p>Fields captured:
+ * <ul>
+ *   <li>{@code taskId}   – the action type string of the task (e.g. {@code "transform"},
+ *                          {@code "join"}, {@code "bash"})</li>
+ *   <li>{@code rowsIn}   – number of rows consumed from the input iterator (inc. header)</li>
+ *   <li>{@code rowsOut}  – number of rows produced by the output iterator (inc. header)</li>
+ *   <li>{@code duration} – wall-clock milliseconds from task start to end</li>
+ *   <li>{@code success}  – {@code true} if no exception was thrown</li>
+ *   <li>{@code error}    – the exception message if {@code success} is {@code false}</li>
+ * </ul>
+ *
+ * <p>Together with {@link StageRun} and {@link PipelineRun}, task runs provide a full
+ * audit trail: which tasks processed how many rows, how long each took, and whether any
+ * failed.
+ */
 public class TaskRun {
     private String taskId;
     private long rowsIn;
