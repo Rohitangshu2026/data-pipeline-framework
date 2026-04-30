@@ -119,7 +119,13 @@ public class PipelineExecutor {
                         executor.execute(ctx);
 
                         outputIt = new CountingIterator(ctx.getIterator());
-                        task.getOutput().writeData(outputIt);
+                        if (executor.handlesOwnOutput()) {
+                            // Action wrote its own output (e.g. bash script); drain
+                            // the iterator only for row-count metrics — do NOT writeData.
+                            while (outputIt.hasNext()) outputIt.next();
+                        } else {
+                            task.getOutput().writeData(outputIt);
+                        }
 
                         metrics.setRowsIn(inputIt.getCount());
                         metrics.setRowsOut(outputIt.getCount());

@@ -110,4 +110,13 @@ public class BashAction implements ActionExecutor {
     public String getType() {
         return "bash";
     }
+
+    /**
+     * Bash scripts write their own output directly to the output path.
+     * The framework must not overwrite that file with the input iterator.
+     */
+    @Override
+    public boolean handlesOwnOutput() {
+        return true;
+    }
 }

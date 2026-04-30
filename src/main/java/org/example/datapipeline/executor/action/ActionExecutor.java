@@ -18,4 +18,14 @@ import org.example.datapipeline.executor.context.ExecutionContext;
 public interface ActionExecutor {
     void execute(ExecutionContext ctx);
     String getType();
+
+    /**
+     * Returns true if this action writes its own output (e.g. a bash script that
+     * writes directly to the output path).  When true, PipelineExecutor will
+     * skip the normal {@code writeData} step so the action's file is not
+     * overwritten by the framework.
+     */
+    default boolean handlesOwnOutput() {
+        return false;
+    }
 }
