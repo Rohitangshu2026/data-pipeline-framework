@@ -3,8 +3,6 @@
 > **A declarative, XML-driven batch ETL engine for the JVM.**  
 > Define complex multi-stage pipelines in XML. The engine builds a DAG, streams data through typed iterators, and executes stages in topological parallel — no code required.
 
-**Live UI Demo →** [data-pipeline-config.netlify.app](https://data-pipeline-config.netlify.app/)
-
 ---
 
 ## Table of Contents
